@@ -202,6 +202,20 @@ def load_data():
 
     return default
 
+now = time.time()
+last = data.get("last_updated", now)
+
+elapsed_minutes = int((now - last) // 60)
+
+if elapsed_minutes > 0:
+    regen = elapsed_minutes // 2   # 2 phút = +1 energy
+    max_energy = 100 + (data["equips"]["boots"] - 1) * 20
+
+    if regen > 0:
+        data["energy"] = min(max_energy, data["energy"] + regen)
+        data["last_updated"] = now
+        save_data(data)
+
 
 def save_data(data):
     supabase.table("players").upsert({
@@ -369,83 +383,59 @@ with tabs[0]:
 
             if col2.button("Hoàn thành", key=f"done_{name}"):
 
-                # ===== ENERGY COST =====
-                energy_cost = 10 + data.get("next_task_penalty", 0)
+    energy_cost = 10 + data.get("next_task_penalty", 0)
 
-                if data["energy"] < energy_cost:
-                    st.warning("Không đủ energy")
-                    continue
+    if data["energy"] < energy_cost:
+        st.warning("Không đủ energy")
+        st.stop()
 
-                data["energy"] -= energy_cost
-                data.pop("next_task_penalty", None)
+    # ---- COST ----
+    data["energy"] -= energy_cost
+    data.pop("next_task_penalty", None)
 
-                # ===== REWARD =====
-                data["points"] += pts
-                dmg = base_dmg * env_damage_mult
+    # ---- REWARD ----
+    data["points"] += pts
+    dmg = (pts // 2) * data["equips"]["sword"]
 
-                debuff_msg = ""
+    # ---- RANDOM DEBUFF ----
+    debuff_msg = None
+    if random.random() < 0.15:
+        debuff = random.choice(DEBUFFS)
+        debuff_msg = f"{debuff['emoji']} {debuff['name']}: {debuff['desc']}"
 
-                # ===== RANDOM DEBUFF =====
-                if random.random() < debuff_chance:
-                    debuff = random.choice(DEBUFFS)
+        if debuff.get("type") == "half_damage":
+            dmg //= 2
+        else:
+            debuff["apply"](data)
 
-                    active = {
-                        "name": debuff["name"],
-                        "emoji": debuff["emoji"],
-                        "type": debuff.get("type", None),
-                        "remaining": debuff.get("duration", 0)
-                    }
+    # ---- DAMAGE ----
+    data["boss_hp"] -= dmg
 
-                    data.setdefault("debuffs", []).append(active)
-                    debuff_msg = f"{debuff['emoji']} {debuff['name']}: {debuff['desc']}"
+    # ---- TASK HISTORY ----
+    data["task_history"].append({
+        "name": name,
+        "points": pts,
+        "date": datetime.now().strftime("%Y-%m-%d %H:%M")
+    })
 
-                # ===== APPLY ACTIVE DEBUFF EFFECT =====
-                for d in data.get("debuffs", []):
-                    if d["type"] == "half_damage":
-                        dmg //= 2
+    data["tasks_done"] += 1
 
-                # ===== APPLY DAMAGE =====
-                data["boss_hp"] -= dmg
+    # ---- REMOVE TASK ----
+    del data["tasks"][name]
 
-                # ===== HISTORY =====
-                data.setdefault("history", []).append({
-                    "date": now.strftime("%Y-%m-%d"),
-                    "points": pts
-                })
+    # ---- BOSS DEAD ----
+    if data["boss_hp"] <= 0:
+        data["boss_kills"] += 1
+        data["boss_hp"] = 1000
+        st.balloons()
 
-                # ---- SAVE TASK HISTORY ----
-                data["task_history"].append({
-                    "name": name,
-                    "points": pts,
-                    "date": datetime.now().strftime("%Y-%m-%d %H:%M")
-                })
+    save_data(data)
 
-                data["tasks_done"] += 1
+    if debuff_msg:
+        st.toast(debuff_msg, icon="⚠️")  # ⬅️ hiện 3s tự biến mất
 
-                # ---- REMOVE TASK AFTER DONE ----
-                del data["tasks"][name]
+    st.rerun()
 
-                # ===== REDUCE DEBUFF DURATION =====
-                new_debuffs = []
-                for d in data.get("debuffs", []):
-                    d["remaining"] -= 1
-                    if d["remaining"] > 0:
-                        new_debuffs.append(d)
-                data["debuffs"] = new_debuffs
-
-                # ===== BOSS DEAD =====
-                if data["boss_hp"] <= 0:
-                    data["boss_kills"] += 1
-                    data["boss_hp"] = 1000
-                    st.balloons()
-
-                check_achievements(data)
-                save_data(data)
-
-                if debuff_msg:
-                    st.toast(debuff_msg, icon="⚠️")
-                    time.sleep(2)
-                    st.rerun()
     st.divider()
     st.subheader("📜 Lịch sử Task đã hoàn thành")
 
