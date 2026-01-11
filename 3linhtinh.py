@@ -6,12 +6,6 @@ import json
 import time          # ⬅️ DÒNG NÀY
 from datetime import datetime
 from db import supabase
-import uuid
-
-if "player_id" not in st.session_state:
-    st.session_state.player_id = str(uuid.uuid4())
-
-PLAYER_ID = st.session_state.player_id
 
 PLAYER_ID = "main_player"
 
