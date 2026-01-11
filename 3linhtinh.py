@@ -73,7 +73,6 @@ DEBUFFS = [
 ]
 
 
-
 CHEST_ITEMS = [
     {"name": "Mana Potion", "desc": "Hồi 50⚡ energy", "type": "energy", "value": 50},
     {"name": "Greater Mana Potion", "desc": "Hồi 100⚡ energy", "type": "energy", "value": 100},
@@ -144,6 +143,8 @@ def load_data():
         "points": 0,
         "energy": 100,
         "tasks": {},
+        "task_history": [],  # ✅ ở đây
+        "tasks_done": 0,  # ✅ ở đây
         "treats": {},
         "inventory": [],
         "max_slots": 3,
@@ -207,6 +208,7 @@ st.sidebar.write(f"⚡ Energy {int(data['energy'])}/{max_energy}")
 st.sidebar.progress(min(data["energy"] / max_energy, 1))
 
 st.sidebar.metric("🏆 Boss đã hạ", data.get("boss_kills", 0))
+st.sidebar.metric("📜 Task đã hoàn thành", data.get("tasks_done", 0))
 
 hp_pct = max(0, data["boss_hp"] / 1000)
 st.sidebar.progress(hp_pct, text=f"🐉 Boss HP {data['boss_hp']}/1000")
@@ -382,7 +384,16 @@ with tabs[0]:
                     "points": pts
                 })
 
-                # ===== REMOVE TASK =====
+                # ---- SAVE TASK HISTORY ----
+                data["task_history"].append({
+                    "name": name,
+                    "points": pts,
+                    "date": datetime.now().strftime("%Y-%m-%d %H:%M")
+                })
+
+                data["tasks_done"] += 1
+
+                # ---- REMOVE TASK AFTER DONE ----
                 del data["tasks"][name]
 
                 # ===== REDUCE DEBUFF DURATION =====
@@ -406,6 +417,24 @@ with tabs[0]:
                     st.toast(debuff_msg, icon="⚠️")
                     time.sleep(2)
                     st.rerun()
+    st.divider()
+    st.subheader("📜 Lịch sử Task đã hoàn thành")
+
+    if not data["task_history"]:
+        st.info("Chưa hoàn thành task nào.")
+    else:
+        # Hiển thị 5 task gần nhất
+        for t in data["task_history"][-5:][::-1]:
+            st.markdown(
+                f"✅ **{t['name']}** — +{t['points']} pts  \n"
+                f"<small>{t['date']}</small>",
+                unsafe_allow_html=True
+            )
+
+        st.caption(f"📊 Tổng task đã hoàn thành: {data.get('tasks_done', 0)}")
+    with st.expander("📂 Xem toàn bộ lịch sử"):
+        df = pd.DataFrame(data["task_history"][::-1])
+        st.dataframe(df, use_container_width=True)
 
 # ================= TREAT TAB =================
 with tabs[1]:
