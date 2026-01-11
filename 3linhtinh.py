@@ -2,6 +2,7 @@ import streamlit as st
 from datetime import datetime
 import random
 from db import supabase
+st.write("Secrets:", st.secrets.keys())
 
 ACHIEVEMENTS = {
     "dragon_slayer": {
