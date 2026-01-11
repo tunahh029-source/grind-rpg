@@ -165,15 +165,37 @@ def get_max_energy(data):
 def load_data():
     try:
         res = supabase.table("players").select("data").eq("id", PLAYER_ID).execute()
-    except Exception as e:
+    except Exception:
         st.error("❌ Không thể tải dữ liệu từ Supabase")
-        st.stop()   # ⬅️ CỰC KỲ QUAN TRỌNG
-
-    # 🔽 TỪ ĐÂY TRỞ XUỐNG: res CHẮC CHẮN TỒN TẠI
+        st.stop()
 
     if res.data:
         data = res.data[0]["data"]
+    else:
+        data = DEFAULT_DATA.copy()
+        supabase.table("players").insert({
+            "id": PLAYER_ID,
+            "data": data
+        }).execute()
 
+    # ================= ENERGY REGEN (ĐẶT Ở ĐÂY) =================
+    now = time.time()
+    last = data.get("last_updated", now)
+
+    elapsed_minutes = int((now - last) // 60)
+
+    if elapsed_minutes > 0:
+        regen = elapsed_minutes // 2   # 2 phút = +1 energy
+        max_energy = 100 + (data["equips"]["boots"] - 1) * 20
+
+        if regen > 0:
+            data["energy"] = min(max_energy, data["energy"] + regen)
+            data["last_updated"] = now
+            supabase.table("players").upsert({
+                "id": PLAYER_ID,
+                "data": data
+            }).execute()
+            
         # 🔧 DATA MIGRATION
         data.setdefault("tasks", {})
         data.setdefault("task_history", [])
@@ -201,21 +223,6 @@ def load_data():
         st.stop()
 
     return default
-
-now = time.time()
-last = data.get("last_updated", now)
-
-elapsed_minutes = int((now - last) // 60)
-
-if elapsed_minutes > 0:
-    regen = elapsed_minutes // 2   # 2 phút = +1 energy
-    max_energy = 100 + (data["equips"]["boots"] - 1) * 20
-
-    if regen > 0:
-        data["energy"] = min(max_energy, data["energy"] + regen)
-        data["last_updated"] = now
-        save_data(data)
-
 
 def save_data(data):
     supabase.table("players").upsert({
