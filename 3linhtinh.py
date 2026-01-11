@@ -3,6 +3,8 @@ import json, os, random, time
 from datetime import datetime
 import pandas as pd
 import plotly.express as px
+from db import supabase, PLAYER_ID
+
 
 ACHIEVEMENTS = {
     "dragon_slayer": {
@@ -133,6 +135,37 @@ def save_data(d):
     d["last_updated"] = time.time()
     with open(DATA_FILE, "w") as f:
         json.dump(d, f, indent=4)
+
+def load_data():
+    res = supabase.table("players").select("data").eq("id", PLAYER_ID).execute()
+
+    if res.data:
+        return res.data[0]["data"]
+
+    # nếu chưa có → tạo mới
+    default = {
+        "points": 0,
+        "energy": 100,
+        "tasks": {},
+        "task_history": [],
+        "boss_hp": 1000,
+        "boss_kills": 0,
+        "equips": {"sword": 1, "boots": 0},
+        "max_slots": 3
+    }
+
+    supabase.table("players").insert({
+        "id": PLAYER_ID,
+        "data": default
+    }).execute()
+
+    return default
+    
+def save_data(data):
+    supabase.table("players").update({
+        "data": data
+    }).eq("id", PLAYER_ID).execute()
+
 
 def get_max_energy(data):
     boots_lvl = data.get("equips", {}).get("boots", 1)
