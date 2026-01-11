@@ -361,8 +361,9 @@ with tabs[0]:
     st.subheader("⚔️ Nhiệm vụ hôm nay")
 
     if not data.get("tasks"):
-        st.info("Chưa có task nào. Hãy tạo trong Forge.")
-        st.stop()
+    st.info("Chưa có task nào. Hãy tạo trong Forge.")
+else:
+    # phần xử lý task nằm trong đây
 
     now = datetime.now()
     hour = now.hour
