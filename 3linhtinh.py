@@ -7,7 +7,6 @@ import time          # ⬅️ DÒNG NÀY
 from datetime import datetime
 from db import supabase
 
-st.write("Secrets:", st.secrets.keys())
 PLAYER_ID = "main_player"
 
 DEFAULT_DATA = {
