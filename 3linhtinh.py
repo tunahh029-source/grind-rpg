@@ -164,7 +164,8 @@ def get_max_energy(data):
 
 def load_data():
     if res.data:
-    data = res.data[0]["data"]
+        data = res.data[0]["data"]
+    
 
     # 🔧 DATA MIGRATION – BẮT BUỘC
     data.setdefault("tasks_done", 0)
