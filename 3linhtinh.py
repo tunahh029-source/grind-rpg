@@ -358,99 +358,91 @@ with tabs[-1]:
 
 # ================= TASK TAB =================
 with tabs[0]:
-    energy_cost = task.get("energy", 1)
-
     st.subheader("⚔️ Nhiệm vụ hôm nay")
 
     if not data.get("tasks"):
         st.info("Chưa có task nào. Hãy tạo trong Forge.")
-    else:
-        now = datetime.now()
-        hour = now.hour
-
-        # ===== ENVIRONMENT CHECK =====
-        env_damage_mult = 1
-
-        # Giờ vàng 9–11h
-        if 9 <= hour < 11:
-            env_damage_mult = 2
-
-        # Ban đêm tăng tỉ lệ debuff
-        debuff_chance = 0.20
-        if hour >= 23:
-            debuff_chance = 0.40
-
-        for name, pts in list(data["tasks"].items()):
-            base_dmg = (pts // 2) * data["equips"].get("sword", 1)
-            preview_dmg = base_dmg * env_damage_mult
-
-            col1, col2 = st.columns([4, 1])
-            col1.write(
-                f"**{name}** | +{pts} pts | ⚔️ {preview_dmg} dmg"
-                + (" ⚡x2" if env_damage_mult == 2 else "")
-            )
-
-            if col2.button("Hoàn thành", key=f"done_{name}"):
-                energy_cost = 10 + data.get("next_task_penalty", 0)
-
-    if data["energy"] < energy_cost:
-        st.warning("Không đủ energy")
         st.stop()
 
-    # ---- COST ----
-    data["energy"] -= energy_cost
-    data.pop("next_task_penalty", None)
+    now = datetime.now()
+    hour = now.hour
 
-    # ---- REWARD ----
-    data["points"] += pts
-    dmg = (pts // 2) * data["equips"]["sword"]
+    # ===== ENVIRONMENT =====
+    env_damage_mult = 2 if 9 <= hour < 11 else 1
+    debuff_chance = 0.40 if hour >= 23 else 0.20
 
-    # ---- RANDOM DEBUFF ----
-    debuff_msg = None
-    if random.random() < 0.15:
-        debuff = random.choice(DEBUFFS)
-        debuff_msg = f"{debuff['emoji']} {debuff['name']}: {debuff['desc']}"
+    for name, pts in list(data["tasks"].items()):
+        base_dmg = (pts // 2) * data["equips"].get("sword", 1)
+        preview_dmg = base_dmg * env_damage_mult
 
-        if debuff.get("type") == "half_damage":
-            dmg //= 2
-        else:
-            debuff["apply"](data)
+        col1, col2 = st.columns([4, 1])
+        col1.write(
+            f"**{name}** | +{pts} pts | ⚔️ {preview_dmg} dmg"
+            + (" ⚡x2" if env_damage_mult == 2 else "")
+        )
 
-    # ---- DAMAGE ----
-    data["boss_hp"] -= dmg
+        if col2.button("Hoàn thành", key=f"done_{name}"):
 
-    # ---- TASK HISTORY ----
-    data["task_history"].append({
-        "name": name,
-        "points": pts,
-        "date": datetime.now().strftime("%Y-%m-%d %H:%M")
-    })
+            # ===== ENERGY COST =====
+            energy_cost = 10 + data.get("next_task_penalty", 0)
 
-    data["tasks_done"] += 1
+            if data["energy"] < energy_cost:
+                st.warning("⚡ Không đủ energy")
+                st.stop()
 
-    # ---- REMOVE TASK ----
-    del data["tasks"][name]
+            # ===== APPLY COST =====
+            data["energy"] -= energy_cost
+            data.pop("next_task_penalty", None)
 
-    # ---- BOSS DEAD ----
-    if data["boss_hp"] <= 0:
-        data["boss_kills"] += 1
-        data["boss_hp"] = 1000
-        st.balloons()
+            # ===== REWARD =====
+            data["points"] += pts
+            dmg = base_dmg * env_damage_mult
 
-    save_data(data)
+            # ===== RANDOM DEBUFF =====
+            debuff_msg = None
+            if random.random() < debuff_chance:
+                debuff = random.choice(DEBUFFS)
+                debuff_msg = f"{debuff['emoji']} {debuff['name']}: {debuff['desc']}"
 
-    if debuff_msg:
-        st.toast(debuff_msg, icon="⚠️")  # ⬅️ hiện 3s tự biến mất
+                if debuff.get("type") == "half_damage":
+                    dmg //= 2
+                else:
+                    debuff["apply"](data)
 
-    st.rerun()
+            # ===== DAMAGE =====
+            data["boss_hp"] -= dmg
 
+            # ===== HISTORY =====
+            data.setdefault("task_history", []).append({
+                "name": name,
+                "points": pts,
+                "date": now.strftime("%Y-%m-%d %H:%M")
+            })
+            data["tasks_done"] = data.get("tasks_done", 0) + 1
+
+            # ===== REMOVE TASK =====
+            del data["tasks"][name]
+
+            # ===== BOSS DEAD =====
+            if data["boss_hp"] <= 0:
+                data["boss_kills"] += 1
+                data["boss_hp"] = 1000
+                st.balloons()
+
+            save_data(data)
+
+            if debuff_msg:
+                st.toast(debuff_msg, icon="⚠️")  # tự biến sau ~3s
+
+            st.rerun()
+
+    # ===== TASK HISTORY VIEW =====
     st.divider()
     st.subheader("📜 Lịch sử Task đã hoàn thành")
 
-    if not data["task_history"]:
+    if not data.get("task_history"):
         st.info("Chưa hoàn thành task nào.")
     else:
-        # Hiển thị 5 task gần nhất
         for t in data["task_history"][-5:][::-1]:
             st.markdown(
                 f"✅ **{t['name']}** — +{t['points']} pts  \n"
@@ -459,9 +451,11 @@ with tabs[0]:
             )
 
         st.caption(f"📊 Tổng task đã hoàn thành: {data.get('tasks_done', 0)}")
-    with st.expander("📂 Xem toàn bộ lịch sử"):
-        df = pd.DataFrame(data["task_history"][::-1])
-        st.dataframe(df, use_container_width=True)
+
+        with st.expander("📂 Xem toàn bộ lịch sử"):
+            df = pd.DataFrame(data["task_history"][::-1])
+            st.dataframe(df, use_container_width=True)
+
 
 # ================= TREAT TAB =================
 with tabs[1]:
