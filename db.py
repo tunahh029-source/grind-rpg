@@ -7,9 +7,10 @@ SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
 
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-PLAYER_ID = st.session_state.get(
-    "player_id",
-    str(uuid.uuid4())
-)
-st.session_state["player_id"] = PLAYER_ID
+# ✅ Tạo PLAYER_ID đúng cách
+if "player_id" not in st.session_state:
+    st.session_state.player_id = str(uuid.uuid4())
+
+PLAYER_ID = st.session_state.player_id
+
 
