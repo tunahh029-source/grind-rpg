@@ -163,6 +163,17 @@ def get_max_energy(data):
     return 100 + (boots_lvl - 1) * 10
 
 def load_data():
+    if res.data:
+    data = res.data[0]["data"]
+
+    # 🔧 DATA MIGRATION – BẮT BUỘC
+    data.setdefault("tasks_done", 0)
+    data.setdefault("task_history", [])
+    data.setdefault("tasks", {})
+    data.setdefault("points", 0)
+    data.setdefault("energy", 100)
+
+    return data
     try:
         res = supabase.table("players").select("data").eq("id", PLAYER_ID).execute()
 
