@@ -362,8 +362,7 @@ with tabs[0]:
 
     if not data.get("tasks"):
         st.info("Chưa có task nào. Hãy tạo trong Forge.")
-else:
-    # phần xử lý task nằm trong đây
+    else:
 
     now = datetime.now()
     hour = now.hour
