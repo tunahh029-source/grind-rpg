@@ -163,51 +163,45 @@ def get_max_energy(data):
     return 100 + (boots_lvl - 1) * 10
 
 def load_data():
-    if res.data:
-        data = res.data[0]["data"]
-    
-
-    # 🔧 DATA MIGRATION – BẮT BUỘC
-    data.setdefault("tasks_done", 0)
-    data.setdefault("task_history", [])
-    data.setdefault("tasks", {})
-    data.setdefault("points", 0)
-    data.setdefault("energy", 100)
-
-    return data
     try:
         res = supabase.table("players").select("data").eq("id", PLAYER_ID).execute()
+    except Exception as e:
+        st.error("❌ Không thể tải dữ liệu từ Supabase")
+        st.stop()   # ⬅️ CỰC KỲ QUAN TRỌNG
 
-        if res.data:
-            return res.data[0]["data"]
+    # 🔽 TỪ ĐÂY TRỞ XUỐNG: res CHẮC CHẮN TỒN TẠI
 
-        # player chưa tồn tại → tạo mới
-        default = DEFAULT_DATA.copy()
+    if res.data:
+        data = res.data[0]["data"]
+
+        # 🔧 DATA MIGRATION
+        data.setdefault("tasks", {})
+        data.setdefault("task_history", [])
+        data.setdefault("tasks_done", 0)
+        data.setdefault("points", 0)
+        data.setdefault("energy", 100)
+        data.setdefault("boss_hp", 1000)
+        data.setdefault("boss_kills", 0)
+        data.setdefault("inventory", [])
+        data.setdefault("max_slots", 3)
+        data.setdefault("equips", {"sword": 1, "boots": 1})
+
+        return data
+
+    # 🆕 PLAYER CHƯA TỒN TẠI → TẠO MỚI
+    default = DEFAULT_DATA.copy()
+
+    try:
         supabase.table("players").insert({
             "id": PLAYER_ID,
             "data": default
         }).execute()
-
-        return default
-
-    except Exception as e:
-        st.error("❌ Không thể tải dữ liệu từ Supabase")
+    except Exception:
+        st.error("❌ Không thể tạo player mới")
         st.stop()
 
+    return default
 
-
-    # đảm bảo key không bao giờ thiếu
-    data.setdefault("tasks", {})
-    data.setdefault("tasks_done", 0)
-    data.setdefault("task_history", [])
-    data.setdefault("points", 0)
-    data.setdefault("energy", 100)
-    data.setdefault("boss_hp", 1000)
-    data.setdefault("boss_kills", 0)
-    data.setdefault("inventory", [])
-    data.setdefault("max_slots", 3)
-
-    return data
 
 def save_data(data):
     supabase.table("players").upsert({
