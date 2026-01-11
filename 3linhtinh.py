@@ -126,35 +126,25 @@ def check_achievements(data):
             st.toast(f"{ach['emoji']} Achievement unlocked: {ach['name']}!", icon="🏆")
 
 
-
-    
-def save_data(data):
-    try:
-        supabase.table("players").upsert({
-            "id": PLAYER_ID,
-            "data": data
-        }).execute()
-    except Exception as e:
-        st.error("❌ Không kết nối được Supabase")
-        st.stop()
-
 def get_max_energy(data):
     boots_lvl = data.get("equips", {}).get("boots", 1)
     return 100 + (boots_lvl - 1) * 10
 
 def load_data():
-    try:
-        res = supabase.table("players").select("data").eq("id", PLAYER_ID).execute()
+    res = supabase.table("players").select("data").eq("id", PLAYER_ID).execute()
 
-        if res.data:
-            data = res.data[0]["data"]
-        else:
-            data = default_data()
-            save_data(data)
+    if res.data:
+        return res.data[0]["data"]
 
-    except Exception as e:
-        st.error("❌ Không thể tải dữ liệu từ Supabase")
-        st.stop()
+    # chưa có player → tạo mới
+    default = DEFAULT_DATA.copy()
+    supabase.table("players").insert({
+        "id": PLAYER_ID,
+        "data": default
+    }).execute()
+
+    return default
+
 
     # đảm bảo key không bao giờ thiếu
     data.setdefault("tasks", {})
@@ -168,6 +158,11 @@ def load_data():
 
     return data
 
+def save_data(data):
+    supabase.table("players").upsert({
+        "id": PLAYER_ID,
+        "data": data
+    }).execute()
 # ================= UI =================
 st.set_page_config("The Grind RPG", layout="wide")
 data = load_data()
