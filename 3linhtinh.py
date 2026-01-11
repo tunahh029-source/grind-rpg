@@ -160,7 +160,18 @@ def load_data():
     }).execute()
 
     return default
-    
+
+def save_data(data):
+    try:
+        supabase.table("players").upsert({
+            "id": PLAYER_ID,
+            "data": data
+        }).execute()
+    except Exception as e:
+        st.error("⚠️ Không kết nối được server, dữ liệu sẽ lưu lại sau.")
+        st.session_state["pending_save"] = data
+
+
 def save_data(data):
     supabase.table("players").update({
         "data": data
