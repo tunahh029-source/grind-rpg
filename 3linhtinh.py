@@ -1,10 +1,7 @@
 import streamlit as st
-import json, os, random, time
 from datetime import datetime
-import pandas as pd
-import plotly.express as px
-from db import supabase, PLAYER_ID
-
+import random
+from db import supabase
 
 ACHIEVEMENTS = {
     "dragon_slayer": {
@@ -145,45 +142,30 @@ def get_max_energy(data):
     return 100 + (boots_lvl - 1) * 10
 
 def load_data():
-    DEFAULT_DATA = {
-        "points": 0,
-        "energy": 100,
-        "tasks": {},
-        "task_history": [],  # ✅ ở đây
-        "tasks_done": 0,  # ✅ ở đây
-        "treats": {},
-        "inventory": [],
-        "max_slots": 3,
-        "equips": {
-            "sword": 1,
-            "boots": 1
-        },
-        "boss_hp": 1000,
-        "boss_kills": 0,
-        "history": [],
-        "active_debuffs": [],
-        "achievements": []
-    }
-
-    if not os.path.exists(DATA_FILE):
-        save_data(DEFAULT_DATA)
-        return DEFAULT_DATA.copy()
-
     try:
-        with open(DATA_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-    except Exception:
-        save_data(DEFAULT_DATA)
-        return DEFAULT_DATA.copy()
+        res = supabase.table("players").select("data").eq("id", PLAYER_ID).execute()
 
-    # 🔒 ABSOLUTE SAFETY NET
-    for k, v in DEFAULT_DATA.items():
-        if k not in data:
-            data[k] = v
+        if res.data:
+            data = res.data[0]["data"]
+        else:
+            data = default_data()
+            save_data(data)
+
+    except Exception as e:
+        st.error("❌ Không thể tải dữ liệu từ Supabase")
+        st.stop()
+
+    # đảm bảo key không bao giờ thiếu
+    data.setdefault("tasks", {})
+    data.setdefault("task_history", [])
+    data.setdefault("points", 0)
+    data.setdefault("energy", 100)
+    data.setdefault("boss_hp", 1000)
+    data.setdefault("boss_kills", 0)
+    data.setdefault("inventory", [])
+    data.setdefault("max_slots", 3)
 
     return data
-
-
 
 # ================= UI =================
 st.set_page_config("The Grind RPG", layout="wide")
