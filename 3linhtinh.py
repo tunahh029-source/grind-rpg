@@ -3,7 +3,7 @@ from datetime import datetime
 import random
 from db import supabase
 st.write("Secrets:", st.secrets.keys())
-
+PLAYER_ID = "main_player"
 ACHIEVEMENTS = {
     "dragon_slayer": {
         "name": "Kẻ Diệt Rồng",
