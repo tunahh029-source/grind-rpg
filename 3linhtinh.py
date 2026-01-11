@@ -17,7 +17,7 @@ DEFAULT_DATA = {
 
     "tasks": {},
     "task_history": [],
-    "task_done_count": 0,
+    "task_done": 0,
 
     "treats": {},
 
@@ -186,6 +186,7 @@ def load_data():
 
     # đảm bảo key không bao giờ thiếu
     data.setdefault("tasks", {})
+    data.setdefault("tasks_done", 0)
     data.setdefault("task_history", [])
     data.setdefault("points", 0)
     data.setdefault("energy", 100)
