@@ -4,6 +4,34 @@ import random
 from db import supabase
 st.write("Secrets:", st.secrets.keys())
 PLAYER_ID = "main_player"
+
+DEFAULT_DATA = {
+    "points": 0,
+    "energy": 100,
+    "boss_hp": 1000,
+    "boss_kills": 0,
+
+    "tasks": {},
+    "task_history": [],
+    "task_done_count": 0,
+
+    "treats": {},
+
+    "inventory": [],
+    "max_slots": 3,
+
+    "equips": {
+        "sword": 1,
+        "boots": 1
+    },
+
+    "debuffs": [],
+    "achievements": [],
+
+    "history": [],
+    "last_updated": time.time()
+}
+
 ACHIEVEMENTS = {
     "dragon_slayer": {
         "name": "Kẻ Diệt Rồng",
@@ -131,19 +159,25 @@ def get_max_energy(data):
     return 100 + (boots_lvl - 1) * 10
 
 def load_data():
-    res = supabase.table("players").select("data").eq("id", PLAYER_ID).execute()
+    try:
+        res = supabase.table("players").select("data").eq("id", PLAYER_ID).execute()
 
-    if res.data:
-        return res.data[0]["data"]
+        if res.data:
+            return res.data[0]["data"]
 
-    # chưa có player → tạo mới
-    default = DEFAULT_DATA.copy()
-    supabase.table("players").insert({
-        "id": PLAYER_ID,
-        "data": default
-    }).execute()
+        # player chưa tồn tại → tạo mới
+        default = DEFAULT_DATA.copy()
+        supabase.table("players").insert({
+            "id": PLAYER_ID,
+            "data": default
+        }).execute()
 
-    return default
+        return default
+
+    except Exception as e:
+        st.error("❌ Không thể tải dữ liệu từ Supabase")
+        st.stop()
+
 
 
     # đảm bảo key không bao giờ thiếu
