@@ -164,71 +164,74 @@ def get_max_energy(data):
 
 def load_data():
     try:
-        res = supabase.table("players").select("data").eq("id", PLAYER_ID).execute()
-    except Exception:
+        res = supabase.table("players") \
+            .select("data") \
+            .eq("id", PLAYER_ID) \
+            .execute()
+    except Exception as e:
         st.error("❌ Không thể tải dữ liệu từ Supabase")
+        st.exception(e)
         st.stop()
 
-    if res.data:
+    # ===== PLAYER TỒN TẠI =====
+    if res.data and len(res.data) > 0:
         data = res.data[0]["data"]
+
+    # ===== PLAYER CHƯA TỒN TẠI =====
     else:
         data = DEFAULT_DATA.copy()
-        supabase.table("players").insert({
-            "id": PLAYER_ID,
-            "data": data
-        }).execute()
+        data["created_at"] = time.time()
 
-    # ================= ENERGY REGEN (ĐẶT Ở ĐÂY) =================
-    now = time.time()
-    last = data.get("last_updated", now)
-
-    elapsed_minutes = int((now - last) // 60)
-
-    if elapsed_minutes > 0:
-        regen = elapsed_minutes // 2   # 2 phút = +1 energy
-        max_energy = 100 + (data["equips"]["boots"] - 1) * 20
-
-        if regen > 0:
-            data["energy"] = min(max_energy, data["energy"] + regen)
-            data["last_updated"] = now
-            supabase.table("players").upsert({
+        try:
+            supabase.table("players").insert({
                 "id": PLAYER_ID,
                 "data": data
             }).execute()
-            
-        # 🔧 DATA MIGRATION
-        data.setdefault("tasks", {})
-        data.setdefault("task_history", [])
-        data.setdefault("tasks_done", 0)
-        data.setdefault("points", 0)
-        data.setdefault("energy", 100)
-        data.setdefault("boss_hp", 1000)
-        data.setdefault("boss_kills", 0)
-        data.setdefault("inventory", [])
-        data.setdefault("max_slots", 3)
-        data.setdefault("equips", {"sword": 1, "boots": 1})
+        except Exception as e:
+            st.error("❌ Không thể tạo player mới")
+            st.exception(e)
+            st.stop()
 
-        return data
+    # ===== DATA MIGRATION (LUÔN CHẠY) =====
+    data.setdefault("tasks", {})
+    data.setdefault("task_history", [])
+    data.setdefault("tasks_done", 0)
+    data.setdefault("points", 0)
+    data.setdefault("energy", 100)
+    data.setdefault("boss_hp", 1000)
+    data.setdefault("boss_kills", 0)
+    data.setdefault("inventory", [])
+    data.setdefault("max_slots", 3)
+    data.setdefault("equips", {"sword": 1, "boots": 1})
+    data.setdefault("last_updated", time.time())
 
-    # 🆕 PLAYER CHƯA TỒN TẠI → TẠO MỚI
-    default = DEFAULT_DATA.copy()
+    # ===== ENERGY REGEN =====
+    now = time.time()
+    elapsed_minutes = int((now - data["last_updated"]) // 60)
 
-    try:
-        supabase.table("players").insert({
-            "id": PLAYER_ID,
-            "data": default
-        }).execute()
-    except Exception:
-        st.error("❌ Không thể tạo player mới")
-        st.stop()
+    if elapsed_minutes >= 2:
+        regen = elapsed_minutes // 2
+        max_energy = 100 + (data["equips"]["boots"] - 1) * 20
+        data["energy"] = min(max_energy, data["energy"] + regen)
+        data["last_updated"] = now
+        save_data(data)
 
-    return default
+    return data
+
 
 def save_data(data):
-    supabase.table("players").upsert({
-        "id": PLAYER_ID,
-        "data": data
-    }).execute()
+    try:
+        data["last_updated"] = time.time()
+
+        supabase.table("players").update({
+            "data": data
+        }).eq("id", PLAYER_ID).execute()
+
+    except Exception as e:
+        st.error("❌ Không thể lưu dữ liệu")
+        st.exception(e)
+        st.stop()
+
 # ================= UI =================
 st.set_page_config("The Grind RPG", layout="wide")
 data = load_data()
