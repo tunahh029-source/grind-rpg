@@ -168,8 +168,9 @@ def save_data(data):
             "data": data
         }).execute()
     except Exception as e:
-        st.error("⚠️ Không kết nối được server, dữ liệu sẽ lưu lại sau.")
-        st.session_state["pending_save"] = data
+        st.error("⚠️ Không kết nối được server Supabase.")
+        st.stop()
+
 
 
 def save_data(data):
