@@ -358,6 +358,8 @@ with tabs[-1]:
 
 # ================= TASK TAB =================
 with tabs[0]:
+    energy_cost = task.get("energy", 1)
+
     st.subheader("⚔️ Nhiệm vụ hôm nay")
 
     if not data.get("tasks"):
