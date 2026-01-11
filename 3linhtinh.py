@@ -382,8 +382,7 @@ with tabs[0]:
             )
 
             if col2.button("Hoàn thành", key=f"done_{name}"):
-
-    energy_cost = 10 + data.get("next_task_penalty", 0)
+                energy_cost = 10 + data.get("next_task_penalty", 0)
 
     if data["energy"] < energy_cost:
         st.warning("Không đủ energy")
