@@ -2,12 +2,9 @@ import streamlit as st
 import random
 import pandas as pd
 import plotly.express as px
-import json
-import time          # ⬅️ DÒNG NÀY
+import time  # ⬅️ DÒNG NÀY
 from datetime import datetime
 from db import supabase
-
-PLAYER_ID = "main_player"
 
 DEFAULT_DATA = {
     "points": 0,
@@ -17,7 +14,7 @@ DEFAULT_DATA = {
 
     "tasks": {},
     "task_history": [],
-    "task_done": 0,
+    "tasks_done": 0,
 
     "treats": {},
 
@@ -53,7 +50,7 @@ ACHIEVEMENTS = {
         "desc": "Tích lũy tổng cộng 5000 pts",
         "condition": lambda d: d.get("total_points", 0) >= 5000,
         "reward": lambda d: d.update({
-            "inventory_slots": d.get("inventory_slots", 3) + 2
+            "max_slots": d.get("max_slots", 3) + 2
         })
     },
 
@@ -67,9 +64,6 @@ ACHIEVEMENTS = {
         })
     }
 }
-
-
-
 
 DEBUFFS = [
     {
@@ -104,7 +98,6 @@ DEBUFFS = [
     }
 ]
 
-
 CHEST_ITEMS = [
     {"name": "Mana Potion", "desc": "Hồi 50⚡ energy", "type": "energy", "value": 50},
     {"name": "Greater Mana Potion", "desc": "Hồi 100⚡ energy", "type": "energy", "value": 100},
@@ -119,6 +112,7 @@ CHEST_ITEMS = [
 ]
 if "chest_msg" not in st.session_state:
     st.session_state.chest_msg = None
+
 
 def get_environment():
     now = datetime.now()
@@ -145,6 +139,7 @@ def get_environment():
 
     return env
 
+
 def check_achievements(data):
     unlocked = data.setdefault("achievements", [])
 
@@ -161,6 +156,7 @@ def check_achievements(data):
 def get_max_energy(data):
     boots_lvl = data.get("equips", {}).get("boots", 1)
     return 100 + (boots_lvl - 1) * 10
+
 
 def load_data():
     try:
@@ -196,6 +192,7 @@ def load_data():
     data.setdefault("tasks", {})
     data.setdefault("task_history", [])
     data.setdefault("tasks_done", 0)
+    data.setdefault("total_points", 0)
     data.setdefault("points", 0)
     data.setdefault("energy", 100)
     data.setdefault("boss_hp", 1000)
@@ -208,6 +205,9 @@ def load_data():
     # ===== ENERGY REGEN =====
     now = time.time()
     elapsed_minutes = int((now - data["last_updated"]) // 60)
+
+    if time.time() < data.get("energy_block_until", 0):
+        return data
 
     if elapsed_minutes >= 2:
         regen = elapsed_minutes // 2
@@ -232,6 +232,7 @@ def save_data(data):
         st.exception(e)
         st.stop()
 
+
 # ================= UI =================
 st.set_page_config("The Grind RPG", layout="wide")
 data = load_data()
@@ -242,7 +243,6 @@ save_data(data)
 env = get_environment()
 bonus_energy = data.get("bonus_max_energy", 0)
 max_energy = 100 + (data['equips']['boots'] - 1) * 20 + bonus_energy
-
 
 st.markdown("""
 <style>
@@ -309,7 +309,6 @@ if active_debuffs:
 else:
     st.sidebar.write("✨ Không có debuff")
 
-
 # ================= RESET =================
 if "reset_confirm" not in st.session_state:
     st.session_state.reset_confirm = False
@@ -319,12 +318,17 @@ if st.sidebar.button("🗑️ Reset"):
 
 if st.session_state.reset_confirm:
     st.sidebar.warning("Reset toàn bộ tiến trình?")
-    if st.sidebar.button("❌ Hủy"):
+
+    col1, col2 = st.sidebar.columns(2)
+
+    if col1.button("❌ Hủy"):
         st.session_state.reset_confirm = False
-    if st.sidebar.button("✅ Xác nhận"):
-        if os.path.exists(DATA_FILE):
-            os.remove(DATA_FILE)
+
+    if col2.button("✅ Xác nhận"):
+        data = DEFAULT_DATA.copy()
+        save_data(data)
         st.session_state.reset_confirm = False
+        st.success("Đã reset nhân vật!")
         st.rerun()
 
 # ================= TABS =================
@@ -365,7 +369,7 @@ with tabs[0]:
 
     if not data.get("tasks"):
         st.info("Chưa có task nào. Hãy tạo trong Forge.")
-    
+
     now = datetime.now()
     hour = now.hour
 
@@ -384,6 +388,7 @@ with tabs[0]:
         )
 
         if col2.button("Hoàn thành", key=f"done_{name}"):
+            check_achievements(data)
 
             # ===== ENERGY COST =====
             energy_cost = 10 + data.get("next_task_penalty", 0)
@@ -398,6 +403,7 @@ with tabs[0]:
 
             # ===== REWARD =====
             data["points"] += pts
+            data["total_points"] = data.get("total_points", 0) + pts
             dmg = base_dmg * env_damage_mult
 
             # ===== RANDOM DEBUFF =====
@@ -458,7 +464,6 @@ with tabs[0]:
             df = pd.DataFrame(data["task_history"][::-1])
             st.dataframe(df, use_container_width=True)
 
-
 # ================= TREAT TAB =================
 with tabs[1]:
     st.subheader("🎁 TREAT – Phần thưởng cho bản thân")
@@ -493,7 +498,6 @@ with tabs[1]:
                 del data["treats"][name]
                 save_data(data)
                 st.rerun()
-
 
 # ================= CHEST TAB =================
 with tabs[2]:
@@ -534,7 +538,6 @@ with tabs[2]:
 
             st.session_state.chest_msg = msg
             st.rerun()
-
 
 # ================= INVENTORY TAB =================
 with tabs[3]:
@@ -623,8 +626,6 @@ with tabs[3]:
                     unsafe_allow_html=True
                 )
 
-
-
 # ================= 5. ARMORY =================
 with tabs[4]:
     c1, c2 = st.columns(2)
@@ -649,7 +650,6 @@ with tabs[4]:
                 data["equips"]["boots"] += 1
                 save_data(data)
                 st.rerun()
-
 
 # ================= TAVERN TAB =================
 with tabs[5]:
@@ -695,7 +695,6 @@ with tabs[5]:
                     st.rerun()
                 else:
                     st.error("Không đủ points")
-
 
 # ================= 7. ANALYTICS =================
 with tabs[6]:
