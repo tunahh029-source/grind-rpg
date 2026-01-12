@@ -4,7 +4,7 @@ import pandas as pd
 import plotly.express as px
 import time  # ⬅️ DÒNG NÀY
 from datetime import datetime
-from db import supabase
+from db import supabase, PLAYER_ID
 
 DEFAULT_DATA = {
     "points": 0,
