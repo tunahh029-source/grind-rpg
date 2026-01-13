@@ -29,7 +29,6 @@ DEFAULT_DATA = {
     "debuffs": [],
     "achievements": [],
 
-    "history": [],
     "last_updated": time.time()
 }
 
@@ -696,16 +695,38 @@ with tabs[5]:
                 else:
                     st.error("Không đủ points")
 
+
 # ================= 7. ANALYTICS =================
 with tabs[6]:
-    if data["history"]:
-        df = pd.DataFrame(data["history"])
+    st.subheader("📊 Thống kê Grind")
+
+    if not data.get("task_history"):
+        st.info("Chưa có dữ liệu để thống kê.")
+    else:
+        df = pd.DataFrame(data["task_history"])
+
+        # convert date
         df["date"] = pd.to_datetime(df["date"])
-        daily = df.groupby(df["date"].dt.date)["points"].sum().reset_index()
+
+        # group theo ngày
+        daily = (
+            df.groupby(df["date"].dt.date)["points"]
+            .sum()
+            .reset_index()
+        )
+
         daily["Day"] = pd.to_datetime(daily["date"]).dt.strftime("%d/%m")
-        fig = px.bar(daily, x="Day", y="points", title="Grind theo ngày")
+
+        fig = px.bar(
+            daily,
+            x="Day",
+            y="points",
+            title="🔥 Points kiếm được mỗi ngày"
+        )
         fig.update_layout(template="plotly_dark")
+
         st.plotly_chart(fig, use_container_width=True)
+
 
 # ================= 8. FORGE =================
 with tabs[7]:
