@@ -252,7 +252,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ================= SIDEBAR =================
-st.sidebar.title("⚔️ HERO")
+st.sidebar.title("⚔️ from the ordinary to flee")
 
 # ===== CORE STATS =====
 st.sidebar.metric("💰 Points", data["points"])
@@ -344,7 +344,7 @@ tabs = st.tabs([
 
 # ================= ACHIEVEMENTS TAB =================
 with tabs[-1]:
-    st.subheader("🏆 Thành tựu & Huy hiệu")
+    st.subheader("🏆 ACHIEVEMENTS")
 
     if not data.get("achievements"):
         st.info("Chưa có thành tựu nào. Hãy tiếp tục grind 💀")
@@ -364,7 +364,7 @@ with tabs[-1]:
 
 # ================= TASK TAB =================
 with tabs[0]:
-    st.subheader("⚔️ Nhiệm vụ hôm nay")
+    st.subheader("⚔️Fram þæm gemænan ætfleohan.")
 
     if not data.get("tasks"):
         st.info("Chưa có task nào. Hãy tạo trong Forge.")
@@ -698,7 +698,7 @@ with tabs[5]:
 
 # ================= 7. ANALYTICS =================
 with tabs[6]:
-    st.subheader("📊 Thống kê Grind")
+    st.subheader("📊 Analytics")
 
     if not data.get("task_history"):
         st.info("Chưa có dữ liệu để thống kê.")
