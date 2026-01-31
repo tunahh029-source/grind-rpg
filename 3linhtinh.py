@@ -36,7 +36,7 @@ ACHIEVEMENTS = {
     "dragon_slayer": {
         "name": "Kẻ Diệt Rồng",
         "emoji": "🐉",
-        "desc": "Hạ gục 10 Boss",
+        "desc": "Hạ gục 7 Boss",
         "condition": lambda d: d.get("boss_kills", 0) >= 7,
         "reward": lambda d: d.update({
             "bonus_damage": d.get("bonus_damage", 0) + 10
@@ -252,7 +252,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ================= SIDEBAR =================
-st.sidebar.title("⚔️ from the ordinary to flee")
+st.sidebar.title("⚔️ From the ordinary to flee")
 
 # ===== CORE STATS =====
 st.sidebar.metric("💰 Points", data["points"])
@@ -776,7 +776,7 @@ with tabs[7]:
             treat_cost = st.slider(
                 "Giá (points)",
                 min_value=50,
-                max_value=100,
+                max_value=1000,
                 value=50,
                 step=5
             )
