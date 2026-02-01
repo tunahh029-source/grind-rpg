@@ -234,27 +234,6 @@ def save_data(data):
 
 # ================= UI =================
 st.set_page_config("The Grind RPG", layout="wide")
-st.markdown("""
-<style>
-/* nền toàn app */
-.stApp {
-    background: linear-gradient(135deg, #0f2027, #203a43, #2c5364);
-}
-
-/* card bạn đang dùng */
-.card {
-    background: rgba(20, 20, 20, 0.85);
-    border: 1px solid #444;
-    border-radius: 16px;
-}
-
-/* sidebar */
-section[data-testid="stSidebar"] {
-    background: linear-gradient(180deg, #111, #1b1b1b);
-}
-</style>
-""", unsafe_allow_html=True)
-
 data = load_data()
 max_energy = get_max_energy(data)
 data["energy"] = min(data["energy"], max_energy)
