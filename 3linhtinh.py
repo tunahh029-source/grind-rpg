@@ -236,41 +236,53 @@ def save_data(data):
 st.set_page_config("The Grind RPG", layout="wide")
 BG_IMAGE = "https://asarge.tumblr.com/image/144351290238"
 
-st.markdown(f"""
-<style>
+st.markdown(
+    f"""
+    <style>
+    html, body {{
+        height: 100%;
+    }}
 
-/* ===== BACKGROUND IMAGE ===== */
-.stApp {{
-    background: 
-        linear-gradient(
-            rgba(0,0,0,0.55),
-            rgba(0,0,0,0.75)
-        ),
-        url("{BG_IMAGE}");
-    background-size: cover;
-    background-position: center;
-    background-attachment: fixed;
-    color: #e5e7eb;
-}}
+    body {{
+        background-image:
+            linear-gradient(
+                rgba(0, 0, 0, 0.6),
+                rgba(0, 0, 0, 0.8)
+            ),
+            url("{BG_IMAGE}");
+        background-size: cover;
+        background-position: center;
+        background-attachment: fixed;
+    }}
 
-/* ===== SIDEBAR ===== */
-section[data-testid="stSidebar"] {{
-    background: rgba(2, 6, 23, 0.9);
-    border-right: 1px solid #1f2937;
-}}
+    /* ROOT APP */
+    .stApp {{
+        background: transparent;
+    }}
 
-/* ===== CARD ===== */
-.card {{
-    background: rgba(17, 24, 39, 0.85);
-    border: 1px solid #374151;
-    padding: 16px;
-    border-radius: 14px;
-    margin-bottom: 12px;
-    box-shadow: 0 10px 25px rgba(0,0,0,0.4);
-}}
+    /* MAIN CONTENT */
+    section.main > div {{
+        background: transparent;
+    }}
 
-</style>
-""", unsafe_allow_html=True)
+    /* SIDEBAR */
+    section[data-testid="stSidebar"] {{
+        background-color: rgba(2, 6, 23, 0.92);
+        border-right: 1px solid #1f2937;
+    }}
+
+    /* CARD */
+    .card {{
+        background: rgba(17, 24, 39, 0.85);
+        border: 1px solid #374151;
+        padding: 16px;
+        border-radius: 14px;
+        box-shadow: 0 10px 25px rgba(0,0,0,0.4);
+    }}
+    </style>
+    """,
+    unsafe_allow_html=True
+)
 
 data = load_data()
 max_energy = get_max_energy(data)
