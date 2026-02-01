@@ -234,56 +234,6 @@ def save_data(data):
 
 # ================= UI =================
 st.set_page_config("The Grind RPG", layout="wide")
-BG_IMAGE = "https://asarge.tumblr.com/image/144351290238"
-
-st.markdown(
-    f"""
-    <style>
-    html, body {{
-        height: 100%;
-    }}
-
-    body {{
-        background-image:
-            linear-gradient(
-                rgba(0, 0, 0, 0.6),
-                rgba(0, 0, 0, 0.8)
-            ),
-            url("{BG_IMAGE}");
-        background-size: cover;
-        background-position: center;
-        background-attachment: fixed;
-    }}
-
-    /* ROOT APP */
-    .stApp {{
-        background: transparent;
-    }}
-
-    /* MAIN CONTENT */
-    section.main > div {{
-        background: transparent;
-    }}
-
-    /* SIDEBAR */
-    section[data-testid="stSidebar"] {{
-        background-color: rgba(2, 6, 23, 0.92);
-        border-right: 1px solid #1f2937;
-    }}
-
-    /* CARD */
-    .card {{
-        background: rgba(17, 24, 39, 0.85);
-        border: 1px solid #374151;
-        padding: 16px;
-        border-radius: 14px;
-        box-shadow: 0 10px 25px rgba(0,0,0,0.4);
-    }}
-    </style>
-    """,
-    unsafe_allow_html=True
-)
-
 data = load_data()
 max_energy = get_max_energy(data)
 data["energy"] = min(data["energy"], max_energy)
@@ -293,6 +243,13 @@ env = get_environment()
 bonus_energy = data.get("bonus_max_energy", 0)
 max_energy = 100 + (data['equips']['boots'] - 1) * 20 + bonus_energy
 
+st.markdown("""
+<style>
+.card {background:#111;border:1px solid #333;padding:16px;border-radius:14px;text-align:center}
+.rare {border-color:#a335ee;box-shadow:0 0 10px #a335ee}
+.big {font-size:32px}
+</style>
+""", unsafe_allow_html=True)
 
 # ================= SIDEBAR =================
 st.sidebar.title("⚔️ From the ordinary to flee")
