@@ -293,13 +293,6 @@ env = get_environment()
 bonus_energy = data.get("bonus_max_energy", 0)
 max_energy = 100 + (data['equips']['boots'] - 1) * 20 + bonus_energy
 
-st.markdown("""
-<style>
-.card {background:#111;border:1px solid #333;padding:16px;border-radius:14px;text-align:center}
-.rare {border-color:#a335ee;box-shadow:0 0 10px #a335ee}
-.big {font-size:32px}
-</style>
-""", unsafe_allow_html=True)
 
 # ================= SIDEBAR =================
 st.sidebar.title("⚔️ From the ordinary to flee")
