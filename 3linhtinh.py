@@ -234,6 +234,56 @@ def save_data(data):
 
 # ================= UI =================
 st.set_page_config("The Grind RPG", layout="wide")
+BG_IMAGE = "https://i.pinimg.com/originals/73/19/75/731975324c0d55280298b4b5824417d1.gif"
+
+st.markdown(
+    f"""
+    <style>
+    html, body {{
+        height: 100%;
+    }}
+
+    body {{
+        background-image:
+            linear-gradient(
+                rgba(0, 0, 0, 0.6),
+                rgba(0, 0, 0, 0.8)
+            ),
+            url("{BG_IMAGE}");
+        background-size: cover;
+        background-position: center;
+        background-attachment: fixed;
+    }}
+
+    /* ROOT APP */
+    .stApp {{
+        background: transparent;
+    }}
+
+    /* MAIN CONTENT */
+    section.main > div {{
+        background: transparent;
+    }}
+
+    /* SIDEBAR */
+    section[data-testid="stSidebar"] {{
+        background-color: rgba(2, 6, 23, 0.92);
+        border-right: 1px solid #1f2937;
+    }}
+
+    /* CARD */
+    .card {{
+        background: rgba(17, 24, 39, 0.85);
+        border: 1px solid #374151;
+        padding: 16px;
+        border-radius: 14px;
+        box-shadow: 0 10px 25px rgba(0,0,0,0.4);
+    }}
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
 data = load_data()
 max_energy = get_max_energy(data)
 data["energy"] = min(data["energy"], max_energy)
