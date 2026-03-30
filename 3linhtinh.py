@@ -112,6 +112,14 @@ CHEST_ITEMS = [
 if "chest_msg" not in st.session_state:
     st.session_state.chest_msg = None
 
+if st.query_params.get("ping") == "1":
+    st.write("alive")
+    st.stop()
+
+@st.cache_resource
+def get_client():
+    return supabase
+
 
 def get_environment():
     now = datetime.now()
