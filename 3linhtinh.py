@@ -1,413 +1,611 @@
-import streamlit as st
-import random
-import pandas as pd
-import plotly.express as px
-import time  # ⬅️ DÒNG NÀY
-from datetime import datetime
-from db import supabase, PLAYER_ID
+import calendar
+import json
 
+import pandas as pd
+import plotly.graph_objects as go
+import streamlit as st
+
+st.set_page_config("The Grind RPG", layout="wide")
+
+# Endpoint giữ app "thức" (dịch vụ ping gọi ?ping=1)
 if st.query_params.get("ping") == "1":
     st.write("alive")
     st.stop()
 
-DEFAULT_DATA = {
-    "points": 0,
-    "energy": 100,
-    "boss_hp": 1000,
-    "boss_kills": 0,
+import game  # noqa: E402
+from db import backup_player, fetch_player, insert_player, save_player  # noqa: E402
 
-    "tasks": {},
-    "task_history": [],
-    "tasks_done": 0,
+BG_IMAGE = "https://i.pinimg.com/originals/73/19/75/731975324c0d55280298b4b5824417d1.gif"
 
-    "treats": {},
+# Màu biểu đồ lấy theo ảnh mẫu (vàng / xanh lá / đỏ)
+COLOR_DONE = "#8fc35b"
+COLOR_PENDING = "#c9962b"
+COLOR_OVERDUE = "#c0392b"
 
-    "inventory": [],
-    "max_slots": 3,
+MONTH_NAMES = [f"Tháng {m}" for m in range(1, 13)]
 
-    "equips": {
-        "sword": 1,
-        "boots": 1
-    },
 
-    "debuffs": [],
-    "achievements": [],
-
-    "last_updated": time.time()
-}
-
-ACHIEVEMENTS = {
-    "dragon_slayer": {
-        "name": "Kẻ Diệt Rồng",
-        "emoji": "🐉",
-        "desc": "Hạ gục 7 Boss",
-        "condition": lambda d: d.get("boss_kills", 0) >= 7,
-        "reward": lambda d: d.update({
-            "bonus_damage": d.get("bonus_damage", 0) + 10
-        })
-    },
-
-    "millionaire": {
-        "name": "Triệu Phú",
-        "emoji": "💰",
-        "desc": "Tích lũy tổng cộng 5000 pts",
-        "condition": lambda d: d.get("total_points", 0) >= 5000,
-        "reward": lambda d: d.update({
-            "max_slots": d.get("max_slots", 3) + 2
-        })
-    },
-
-    "iron_discipline": {
-        "name": "Kỷ Luật Thép",
-        "emoji": "🛡️",
-        "desc": "Hoàn thành task liên tục 7 ngày",
-        "condition": lambda d: d.get("streak", 0) >= 7,
-        "reward": lambda d: d.update({
-            "bonus_max_energy": d.get("bonus_max_energy", 0) + 20
-        })
-    }
-}
-
-DEBUFFS = [
-    {
-        "name": "Mệt Mỏi",
-        "emoji": "😵",
-        "desc": "Task tiếp theo tốn +5 energy",
-        "apply": lambda d: d.__setitem__("next_task_penalty", 5)
-    },
-    {
-        "name": "Chấn Thương",
-        "emoji": "🩸",
-        "desc": "Giảm 20 energy ngay lập tức",
-        "apply": lambda d: d.__setitem__("energy", max(0, d["energy"] - 20))
-    },
-    {
-        "name": "Uể Oải",
-        "emoji": "🐌",
-        "desc": "Giảm 50% sát thương task kế tiếp",
-        "type": "half_damage"
-    },
-    {
-        "name": "Choáng",
-        "emoji": "💫",
-        "desc": "Không hồi energy trong 10 phút",
-        "apply": lambda d: d.__setitem__("energy_block_until", time.time() + 600)
-    },
-    {
-        "name": "Cám Dỗ",
-        "emoji": "🍩",
-        "desc": "Mất 10 pts vì xao nhãng",
-        "apply": lambda d: d.__setitem__("points", max(0, d["points"] - 10))
-    }
-]
-
-CHEST_ITEMS = [
-    {"name": "Mana Potion", "desc": "Hồi 50⚡ energy", "type": "energy", "value": 50},
-    {"name": "Greater Mana Potion", "desc": "Hồi 100⚡ energy", "type": "energy", "value": 100},
-    {"name": "Boss Bomb", "desc": "Gây 200 dmg lên Boss", "type": "damage", "value": 200},
-    {"name": "Mega Bomb", "desc": "Gây 400 dmg lên Boss", "type": "damage", "value": 400},
-    {"name": "Energy Scroll", "desc": "Tăng energy tối đa +10", "type": "max_energy", "value": 10},
-    {"name": "Lucky Coin", "desc": "Nhận thêm 100 pts", "type": "points", "value": 100},
-    {"name": "Cursed Coin", "desc": "Mất 50 pts (đen)", "type": "points", "value": -50},
-    {"name": "Boss Poison", "desc": "Boss mất 10% HP hiện tại", "type": "percent_damage", "value": 0.1},
-    {"name": "Stimulant", "desc": "Hồi 30⚡ energy ngay", "type": "energy", "value": 30},
-    {"name": "Empty Chest", "desc": "Không có gì… xui 😭", "type": "none", "value": 0},
-]
+# ================= THÔNG BÁO (không bị mất khi st.rerun) =================
+if "flash" not in st.session_state:
+    st.session_state.flash = []
 if "chest_msg" not in st.session_state:
     st.session_state.chest_msg = None
-
-@st.cache_resource
-def get_client():
-    return supabase
-
-def get_environment():
-    now = datetime.now()
-    hour = now.hour
-    weekday = now.weekday()  # 0 = Mon, 6 = Sun
-
-    env = {
-        "damage_multiplier": 1,
-        "tavern_price_multiplier": 1,
-        "debuff_bonus": 0
-    }
-
-    # ⚡ Giờ vàng 9–11h
-    if 9 <= hour < 11:
-        env["damage_multiplier"] = 2
-
-    # 🍻 Cuối tuần
-    if weekday >= 5:
-        env["tavern_price_multiplier"] = 0.5
-
-    # 🌫️ Ban đêm
-    if hour >= 23:
-        env["debuff_bonus"] = 0.15
-
-    return env
+if "reset_confirm" not in st.session_state:
+    st.session_state.reset_confirm = False
+if "editor_nonce" not in st.session_state:
+    st.session_state.editor_nonce = 0
 
 
-def check_achievements(data):
-    unlocked = data.setdefault("achievements", [])
-
-    for key, ach in ACHIEVEMENTS.items():
-        if key in unlocked:
-            continue
-
-        if ach["condition"](data):
-            unlocked.append(key)
-            ach["reward"](data)
-            st.toast(f"{ach['emoji']} Achievement unlocked: {ach['name']}!", icon="🏆")
+def flash(kind, text=""):
+    st.session_state.flash.append((kind, text))
 
 
-def get_max_energy(data):
-    boots_lvl = data.get("equips", {}).get("boots", 1)
-    return 100 + (boots_lvl - 1) * 10
+def show_flash():
+    msgs, st.session_state.flash = st.session_state.flash, []
+    for kind, text in msgs:
+        if kind == "success":
+            st.success(text)
+        elif kind == "error":
+            st.error(text)
+        elif kind == "warning":
+            st.warning(text)
+        elif kind == "info":
+            st.info(text)
+        elif kind == "toast":
+            st.toast(text)
+        elif kind == "balloons":
+            st.balloons()
+
+
+# ================= LƯU / TẢI =================
+def commit(d):
+    """Lưu tiến trình. Nếu lưu lỗi thì báo rõ và dừng, không im lặng làm mất dữ liệu."""
+    try:
+        save_player(d)
+    except Exception as e:
+        st.error("❌ Không thể lưu dữ liệu — thay đổi vừa rồi CHƯA được lưu.")
+        st.exception(e)
+        st.stop()
 
 
 def load_data():
     try:
-        res = supabase.table("players") \
-            .select("data") \
-            .eq("id", PLAYER_ID) \
-            .execute()
+        exists, data = fetch_player()
     except Exception as e:
         st.error("❌ Không thể tải dữ liệu từ Supabase")
         st.exception(e)
         st.stop()
 
-    # ===== PLAYER TỒN TẠI =====
-    if res.data and len(res.data) > 0:
-        data = res.data[0]["data"]
-
-    # ===== PLAYER CHƯA TỒN TẠI =====
-    else:
-        data = DEFAULT_DATA.copy()
-        data["created_at"] = time.time()
-
+    if not exists:
+        data = game.new_player_data()
         try:
-            supabase.table("players").insert({
-                "id": PLAYER_ID,
-                "data": data
-            }).execute()
+            insert_player(data)
         except Exception as e:
-            st.error("❌ Không thể tạo player mới")
+            st.error("❌ Không thể tạo nhân vật mới")
             st.exception(e)
             st.stop()
+    elif not isinstance(data, dict) or not data:
+        st.error(
+            "⚠️ Dòng dữ liệu của bạn trên Supabase đang rỗng hoặc hỏng. "
+            "App dừng lại để không ghi đè lên dữ liệu cũ — hãy kiểm tra bảng `players` "
+            "hoặc khôi phục từ dòng sao lưu (xem README.md)."
+        )
+        st.stop()
 
-    # ===== DATA MIGRATION (LUÔN CHẠY) =====
-    data.setdefault("tasks", {})
-    data.setdefault("task_history", [])
-    data.setdefault("tasks_done", 0)
-    data.setdefault("total_points", 0)
-    data.setdefault("points", 0)
-    data.setdefault("energy", 100)
-    data.setdefault("boss_hp", 1000)
-    data.setdefault("boss_kills", 0)
-    data.setdefault("inventory", [])
-    data.setdefault("max_slots", 3)
-    data.setdefault("equips", {"sword": 1, "boots": 1})
-    data.setdefault("last_updated", time.time())
-
-    # ===== ENERGY REGEN =====
-    now = time.time()
-    elapsed_minutes = int((now - data["last_updated"]) // 60)
-
-    if time.time() < data.get("energy_block_until", 0):
-        return data
-
-    if elapsed_minutes >= 2:
-        regen = elapsed_minutes // 2
-        max_energy = 100 + (data["equips"]["boots"] - 1) * 20
-        data["energy"] = min(max_energy, data["energy"] + regen)
-        data["last_updated"] = now
-        save_data(data)
-
+    before = json.dumps(data, sort_keys=True, default=str)
+    game.migrate(data)
+    changed = json.dumps(data, sort_keys=True, default=str) != before
+    if game.apply_regen(data):
+        changed = True
+    if changed:
+        commit(data)
     return data
 
 
-def save_data(data):
-    try:
-        data["last_updated"] = time.time()
-
-        supabase.table("players").update({
-            "data": data
-        }).eq("id", PLAYER_ID).execute()
-
-    except Exception as e:
-        st.error("❌ Không thể lưu dữ liệu")
-        st.exception(e)
-        st.stop()
+# ================= CALLBACK =================
+def _ask_reset():
+    st.session_state.reset_confirm = True
 
 
-# ================= UI =================
-st.set_page_config("The Grind RPG", layout="wide")
-BG_IMAGE = "https://i.pinimg.com/originals/73/19/75/731975324c0d55280298b4b5824417d1.gif"
+def _cancel_reset():
+    st.session_state.reset_confirm = False
 
+
+def _do_reset():
+    st.session_state.reset_confirm = False
+    st.session_state.reset_do = True
+
+
+def _shift_month(delta):
+    idx = st.session_state.dash_year * 12 + (st.session_state.dash_month - 1) + delta
+    st.session_state.dash_year, month0 = divmod(idx, 12)
+    st.session_state.dash_month = month0 + 1
+
+
+def _go_today():
+    t = game.today()
+    st.session_state.dash_year, st.session_state.dash_month = t.year, t.month
+
+
+# ================= GIAO DIỆN CHUNG =================
 st.markdown(
     f"""
     <style>
-    html, body {{
-        height: 100%;
-    }}
-
+    html, body {{ height: 100%; }}
     body {{
         background-image:
-            linear-gradient(
-                rgba(0, 0, 0, 0.6),
-                rgba(0, 0, 0, 0.8)
-            ),
+            linear-gradient(rgba(0, 0, 0, 0.6), rgba(0, 0, 0, 0.8)),
             url("{BG_IMAGE}");
         background-size: cover;
         background-position: center;
         background-attachment: fixed;
     }}
-
-    /* ROOT APP */
-    .stApp {{
+    .stApp, [data-testid="stAppViewContainer"], [data-testid="stHeader"] {{
         background: transparent;
     }}
-
-    /* MAIN CONTENT */
-    section.main > div {{
-        background: transparent;
-    }}
-
-    /* SIDEBAR */
+    section.main > div {{ background: transparent; }}
     section[data-testid="stSidebar"] {{
         background-color: rgba(2, 6, 23, 0.92);
         border-right: 1px solid #1f2937;
     }}
-
-    /* CARD */
     .card {{
         background: rgba(17, 24, 39, 0.85);
         border: 1px solid #374151;
         padding: 16px;
         border-radius: 14px;
         box-shadow: 0 10px 25px rgba(0,0,0,0.4);
+        text-align: center;
     }}
+    .big {{ font-size: 32px; }}
+    .status-head {{ display:flex; align-items:center; gap:12px; margin-bottom:4px; }}
+    .status-icon {{
+        width:44px; height:44px; border-radius:50%; background:{COLOR_OVERDUE};
+        display:flex; align-items:center; justify-content:center; font-size:22px;
+    }}
+    .status-title {{ font-weight:700; font-size:20px; }}
     </style>
     """,
-    unsafe_allow_html=True
+    unsafe_allow_html=True,
 )
 
+show_flash()
+
 data = load_data()
-max_energy = get_max_energy(data)
-data["energy"] = min(data["energy"], max_energy)
-save_data(data)
 
-env = get_environment()
-bonus_energy = data.get("bonus_max_energy", 0)
-max_energy = 100 + (data['equips']['boots'] - 1) * 20 + bonus_energy
+# Reset được xử lý sau khi nhấn xác nhận (có sao lưu trước)
+if st.session_state.pop("reset_do", False):
+    backup_player(data, "reset")
+    data = game.migrate(game.new_player_data())
+    commit(data)
+    flash("success", "Đã reset nhân vật! (bản trước đó được sao lưu trong Supabase)")
+    st.rerun()
 
-st.markdown("""
-<style>
-.card {background:#111;border:1px solid #333;padding:16px;border-radius:14px;text-align:center}
-.rare {border-color:#a335ee;box-shadow:0 0 10px #a335ee}
-.big {font-size:32px}
-</style>
-""", unsafe_allow_html=True)
+env = game.get_environment()
+max_energy = game.get_max_energy(data)
+now_dt = game.now_local()
 
 # ================= SIDEBAR =================
 st.sidebar.title("⚔️ From the ordinary to flee")
 
-# ===== CORE STATS =====
 st.sidebar.metric("💰 Points", data["points"])
 st.sidebar.write(f"⚡ Energy {int(data['energy'])}/{max_energy}")
 st.sidebar.progress(min(data["energy"] / max_energy, 1))
 
 st.sidebar.metric("🏆 Boss đã hạ", data.get("boss_kills", 0))
 st.sidebar.metric("📜 Task đã hoàn thành", data.get("tasks_done", 0))
+st.sidebar.metric("🔥 Chuỗi ngày liên tục", data.get("streak", 0))
 
-hp_pct = max(0, data["boss_hp"] / 1000)
-st.sidebar.progress(hp_pct, text=f"🐉 Boss HP {data['boss_hp']}/1000")
+hp_pct = min(1.0, max(0.0, data["boss_hp"] / game.BOSS_MAX_HP))
+st.sidebar.progress(hp_pct, text=f"🐉 Boss HP {data['boss_hp']}/{game.BOSS_MAX_HP}")
 
-year_prog = (datetime.now() - datetime(datetime.now().year, 1, 1)).days / 365
+days_in_year = 366 if calendar.isleap(now_dt.year) else 365
+year_prog = (now_dt.timetuple().tm_yday - 1) / days_in_year
 st.sidebar.progress(year_prog, text=f"📅 Year {year_prog:.1%}")
 
-# ===== ENVIRONMENT BUFFS =====
 st.sidebar.divider()
 st.sidebar.subheader("🌍 Environment Buff")
-
-now = datetime.now()
-hour = now.hour
-weekday = now.weekday()  # 5 = Sat, 6 = Sun
-
-env_buffs = []
-
-# 9h–11h sáng
-if 9 <= hour < 11:
-    env_buffs.append("⚡ Sóng năng lượng (x2 Damage)")
-
-# Cuối tuần
-if weekday in (5, 6):
-    env_buffs.append("🍻 Ngày hội Tavern (-50% giá)")
-
-# Ban đêm
-if hour >= 23:
-    env_buffs.append("🌫️ Sương mù (↑ tỉ lệ Debuff)")
-
-if env_buffs:
-    for buff in env_buffs:
+if env["buffs"]:
+    for buff in env["buffs"]:
         st.sidebar.success(buff)
 else:
     st.sidebar.info("Không có buff đặc biệt")
 
-# ===== ACTIVE DEBUFFS =====
 st.sidebar.divider()
 st.sidebar.subheader("☠️ Debuff đang dính")
-
-active_debuffs = data.get("debuffs", [])
-
-if active_debuffs:
-    for d in active_debuffs:
-        st.sidebar.error(f"{d['emoji']} {d['name']} ({d['remaining']} task)")
+debuffs_now = game.active_debuffs(data)
+if debuffs_now:
+    for line in debuffs_now:
+        st.sidebar.error(line)
 else:
     st.sidebar.write("✨ Không có debuff")
 
-# ================= RESET =================
-if "reset_confirm" not in st.session_state:
-    st.session_state.reset_confirm = False
-
-if st.sidebar.button("🗑️ Reset"):
-    st.session_state.reset_confirm = True
-
+st.sidebar.button("🗑️ Reset", on_click=_ask_reset)
 if st.session_state.reset_confirm:
-    st.sidebar.warning("Reset toàn bộ tiến trình?")
-
-    col1, col2 = st.sidebar.columns(2)
-
-    if col1.button("❌ Hủy"):
-        st.session_state.reset_confirm = False
-
-    if col2.button("✅ Xác nhận"):
-        data = DEFAULT_DATA.copy()
-        save_data(data)
-        st.session_state.reset_confirm = False
-        st.success("Đã reset nhân vật!")
-        st.rerun()
+    st.sidebar.warning(
+        "Reset toàn bộ tiến trình, kể cả danh sách task? "
+        "Bản hiện tại sẽ được sao lưu trước khi xóa."
+    )
+    c1, c2 = st.sidebar.columns(2)
+    c1.button("❌ Hủy", on_click=_cancel_reset)
+    c2.button("✅ Xác nhận", on_click=_do_reset)
 
 # ================= TABS =================
-tabs = st.tabs([
-    "⚔️ Task",
-    "🎁 Treat",
-    "📦 Rương",
-    "🎒 Túi đồ",
-    "🛠️ Rèn",
-    "🍻 Tavern",
-    "📊 Thống kê",
-    "⚙️ Forge", "🏆 ACHIEVEMENTS"
-])
+tab_task, tab_chest, tab_bag, tab_armory, tab_tavern, tab_ach = st.tabs(
+    ["⚔️ Task", "📦 Rương", "🎒 Túi đồ", "🛠️ Rèn", "🍻 Tavern", "🏆 ACHIEVEMENTS"]
+)
+
+
+# ================= TASK TAB =================
+def build_donut(stats):
+    if stats["total"] == 0:
+        labels, values, colors = ["Chưa có task"], [1], ["#4b5563"]
+    else:
+        labels = [
+            f"Hoàn thành · {stats['done']}",
+            f"Chờ làm · {stats['pending']}",
+            f"Quá hạn · {stats['overdue']}",
+        ]
+        values = [stats["done"], stats["pending"], stats["overdue"]]
+        colors = [COLOR_DONE, COLOR_PENDING, COLOR_OVERDUE]
+
+    fig = go.Figure(
+        go.Pie(
+            labels=labels,
+            values=values,
+            hole=0.62,
+            sort=False,
+            direction="clockwise",
+            textinfo="none",
+            hoverinfo="label+percent",
+            marker=dict(colors=colors, line=dict(color="rgba(0,0,0,0)", width=0)),
+            domain=dict(x=[0, 0.58], y=[0, 1]),
+        )
+    )
+    fig.update_layout(
+        template="plotly_dark",
+        height=280,
+        margin=dict(l=0, r=0, t=10, b=10),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        showlegend=True,
+        legend=dict(
+            orientation="v", yanchor="middle", y=0.5, xanchor="left", x=0.64,
+            font=dict(size=15),
+        ),
+        annotations=[
+            dict(
+                text=f"<b>{stats['done']}/{stats['total']}</b><br>"
+                     f"<span style='font-size:12px'>hoàn thành</span>",
+                x=0.29, y=0.5, xref="paper", yref="paper",
+                showarrow=False, font=dict(size=26),
+            )
+        ],
+    )
+    return fig
+
+
+with tab_task:
+    today = game.today()
+
+    if "dash_year" not in st.session_state:
+        st.session_state.dash_year = today.year
+        st.session_state.dash_month = today.month
+
+    years = list(range(min(2024, today.year), today.year + 6))
+    if st.session_state.dash_year not in years:
+        years = sorted(set(years + [st.session_state.dash_year]))
+
+    n1, n2, n3, n4, n5 = st.columns([1, 2, 2, 1, 2])
+    n1.button("◀", key="prev_month", on_click=_shift_month, args=(-1,))
+    n2.selectbox(
+        "Tháng", list(range(1, 13)), key="dash_month",
+        format_func=lambda m: MONTH_NAMES[m - 1], label_visibility="collapsed",
+    )
+    n3.selectbox("Năm", years, key="dash_year", label_visibility="collapsed")
+    n4.button("▶", key="next_month", on_click=_shift_month, args=(1,))
+    n5.button("📍 Hôm nay", key="go_today", on_click=_go_today)
+
+    year, month = st.session_state.dash_year, st.session_state.dash_month
+    all_tasks = data["tasks"]
+    month_tasks = game.tasks_in_month(all_tasks, year, month)
+    year_tasks = game.tasks_in_year(all_tasks, year)
+    stats = game.task_stats(month_tasks, today.isoformat())
+    year_stats = game.task_stats(year_tasks, today.isoformat())
+    all_stats = game.task_stats(all_tasks, today.isoformat())
+
+    # ----- Biểu đồ trạng thái task (theo ảnh mẫu) -----
+    with st.container(border=True):
+        st.markdown(
+            "<div class='status-head'><div class='status-icon'>📋</div>"
+            f"<span class='status-title'>Task status — {MONTH_NAMES[month - 1]} {year}</span></div>",
+            unsafe_allow_html=True,
+        )
+        chart_col, num_col = st.columns([3, 2])
+        with chart_col:
+            st.plotly_chart(build_donut(stats), key=f"donut_{year}_{month}")
+        with num_col:
+            m1, m2 = st.columns(2)
+            m1.metric("Task đặt ra", stats["total"])
+            m2.metric("Đã hoàn thành", stats["done"])
+            m3, m4 = st.columns(2)
+            m3.metric("Chưa xong", stats["pending"] + stats["overdue"])
+            m4.metric("Tỉ lệ", f"{stats['rate']:.0%}")
+            st.caption(
+                f"📆 Cả năm {year}: {year_stats['done']}/{year_stats['total']} task hoàn thành "
+                f"({year_stats['rate']:.0%})"
+            )
+            st.caption(
+                f"🗂️ Tất cả các tháng: {all_stats['done']}/{all_stats['total']} task hoàn thành "
+                f"({all_stats['rate']:.0%})"
+            )
+
+    # ----- To-do checklist dạng bảng -----
+    st.subheader("📝 To-do checklist")
+
+    weeks = game.month_weeks(year, month)
+    first_day, last_day = weeks[0][0], weeks[-1][1]
+    week_labels = ["Cả tháng"] + [
+        f"Tuần {i + 1} ({a:%d/%m} – {b:%d/%m})" for i, (a, b) in enumerate(weeks)
+    ]
+    default_week = 0
+    for i, (a, b) in enumerate(weeks):
+        if a <= today <= b:
+            default_week = i + 1
+    sel_label = st.selectbox(
+        "Hiển thị", week_labels, index=default_week, key=f"week_sel_{year}_{month}"
+    )
+    sel_idx = week_labels.index(sel_label)
+    lo, hi = (first_day, last_day) if sel_idx == 0 else weeks[sel_idx - 1]
+
+    shown = sorted(
+        (t for t in month_tasks if lo.isoformat() <= t["date"] <= hi.isoformat()),
+        key=lambda t: t["date"],
+    )
+    default_day = today if lo <= today <= hi else lo
+
+    cols = ["id", "Xong", "Thứ", "Ngày", "Task", "Điểm", "⚔️ Dmg"]
+    rows = []
+    for t in shown:
+        d = game.parse_date(t["date"])
+        rows.append(
+            {
+                "id": t["id"],
+                "Xong": t["done"],
+                "Thứ": game.WEEKDAYS[d.weekday()],
+                "Ngày": d,
+                "Task": t["name"],
+                "Điểm": t["points"],
+                "⚔️ Dmg": game.calc_damage(t["points"], data, env),
+            }
+        )
+    df = pd.DataFrame(rows, columns=cols)
+
+    editor_key = f"editor_{year}_{month}_{sel_idx}_{st.session_state.editor_nonce}"
+    with st.form(f"task_form_{year}_{month}_{sel_idx}", border=False):
+        edited = st.data_editor(
+            df,
+            key=editor_key,
+            num_rows="dynamic",
+            hide_index=True,
+            column_order=["Xong", "Thứ", "Ngày", "Task", "Điểm", "⚔️ Dmg"],
+            column_config={
+                "id": None,
+                "Xong": st.column_config.CheckboxColumn("✅", default=False),
+                "Thứ": st.column_config.TextColumn("Thứ", disabled=True),
+                "Ngày": st.column_config.DateColumn(
+                    "Ngày", format="DD/MM/YYYY", min_value=first_day, max_value=last_day,
+                    default=default_day, required=True,
+                ),
+                "Task": st.column_config.TextColumn("Task", max_chars=120, required=True),
+                "Điểm": st.column_config.NumberColumn(
+                    "Điểm", min_value=game.TASK_MIN_POINTS, max_value=game.TASK_MAX_POINTS,
+                    step=5, default=20, format="%d",
+                ),
+                "⚔️ Dmg": st.column_config.NumberColumn("⚔️ Dmg", disabled=True, format="%d"),
+            },
+        )
+        submitted = st.form_submit_button("💾 Lưu thay đổi", type="primary")
+
+    st.caption(
+        f"Bấm ➕ dưới bảng để thêm task, chọn dòng rồi nhấn Delete để xóa, bấm vào ô để sửa. "
+        f"Tick ✅ rồi **Lưu thay đổi** để hoàn thành task (tốn {game.task_energy_cost(data)}⚡). "
+        "Nhớ lưu trước khi đổi tháng/tuần."
+    )
+
+    if submitted:
+        records = edited.to_dict("records")
+        if "id" not in edited.columns:  # dự phòng: ánh xạ theo chỉ số dòng gốc
+            id_by_index = dict(zip(df.index, df["id"]))
+            for idx, rec in zip(edited.index, records):
+                rec["id"] = id_by_index.get(idx)
+        # Đổi tên cột hiển thị -> khoá logic
+        records = [
+            {
+                "id": r.get("id"),
+                "done": r.get("Xong"),
+                "date": r.get("Ngày"),
+                "task": r.get("Task"),
+                "points": r.get("Điểm"),
+            }
+            for r in records
+        ]
+
+        res = game.apply_table_edits(data, records, [t["id"] for t in shown], env, now_dt)
+        commit(data)
+
+        changes = res["added"] + res["edited"] + res["deleted"] + res["completed"]
+        if changes:
+            flash(
+                "success",
+                f"💾 Đã lưu: +{res['added']} mới · {res['edited']} sửa · "
+                f"{res['deleted']} xóa · {res['completed']} hoàn thành",
+            )
+        else:
+            flash("info", "Không có thay đổi nào để lưu.")
+        for w in res["warnings"]:
+            flash("warning", w)
+        for tmsg in res["toasts"]:
+            flash("toast", tmsg)
+        if res["boss_kills"]:
+            flash("success", f"🐉 Bạn đã hạ Boss {res['boss_kills']} lần!")
+            flash("balloons")
+        for ach in res["unlocked"]:
+            flash("toast", f"{ach['emoji']} Achievement unlocked: {ach['name']}!")
+
+        st.session_state.editor_nonce += 1
+        st.rerun()
+
+# ================= CHEST TAB =================
+with tab_chest:
+    st.subheader("📦 RƯƠNG MAY MẮN")
+
+    if st.session_state.chest_msg:
+        st.info(st.session_state.chest_msg)
+        if st.button("OK"):
+            st.session_state.chest_msg = None
+            st.rerun()
+
+    if st.button(f"🔓 MỞ RƯƠNG ({game.CHEST_COST} pts)"):
+        out = game.open_chest(data)
+        if not out["ok"]:
+            st.error(out["msg"])
+        else:
+            commit(data)
+            st.session_state.chest_msg = out["msg"]
+            st.rerun()
+
+# ================= INVENTORY TAB =================
+with tab_bag:
+    st.subheader("🎒 Túi đồ")
+
+    col_a, col_b = st.columns([3, 1])
+    col_a.write(f"Số ô: {data['max_slots']}")
+    if col_b.button(f"➕ Mua ô ({game.slot_price(data)} pts)"):
+        out = game.buy_slot(data)
+        if out["ok"]:
+            commit(data)
+            flash("success", out["msg"])
+            st.rerun()
+        else:
+            st.error(out["msg"])
+
+    st.subheader(f"🎒 Túi đồ ({len(data['inventory'])}/{data['max_slots']})")
+
+    cols = st.columns(3)
+    for i in range(data["max_slots"]):
+        with cols[i % 3]:
+            if i < len(data["inventory"]):
+                it = data["inventory"][i]
+                st.markdown(
+                    f"""
+                    <div class='card'>
+                        <b>{it['name']}</b><br>
+                        <small style='color:#aaa'>Bấm xem công dụng</small>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+                with st.expander("📖 Công dụng", expanded=False):
+                    st.write(it["desc"])
+
+                col_use, col_sell = st.columns(2)
+
+                if col_use.button("Dùng", key=f"use_{i}"):
+                    out = game.use_item(data, i)
+                    commit(data)
+                    flash("success", out["msg"])
+                    if out["boss_killed"]:
+                        flash("success", "🐉 Bạn đã hạ Boss!")
+                        flash("balloons")
+                    for ach in out["unlocked"]:
+                        flash("toast", f"{ach['emoji']} Achievement unlocked: {ach['name']}!")
+                    st.rerun()
+
+                sell_price = it.get("sell", game.DEFAULT_SELL_PRICE)
+                if col_sell.button(f"Bán (+{sell_price})", key=f"sell_{i}"):
+                    out = game.sell_item(data, i)
+                    commit(data)
+                    flash("success", out["msg"])
+                    st.rerun()
+            else:
+                st.markdown(
+                    "<div class='card' style='border:dashed 1px #444'>Ô trống</div>",
+                    unsafe_allow_html=True,
+                )
+
+# ================= ARMORY TAB =================
+with tab_armory:
+    c1, c2 = st.columns(2)
+    with c1:
+        st.markdown(
+            "<div class='card'><div class='big'>⚔️</div>"
+            f"Sword Lv.{data['equips']['sword']}</div>",
+            unsafe_allow_html=True,
+        )
+        if st.button(f"Rèn kiếm ({game.upgrade_cost(data, 'sword')} pts)"):
+            out = game.upgrade_equipment(data, "sword")
+            if out["ok"]:
+                commit(data)
+                flash("success", out["msg"])
+                st.rerun()
+            else:
+                st.error(out["msg"])
+
+    with c2:
+        st.markdown(
+            "<div class='card'><div class='big'>👞</div>"
+            f"Boots Lv.{data['equips']['boots']}</div>",
+            unsafe_allow_html=True,
+        )
+        if st.button(f"Rèn giày ({game.upgrade_cost(data, 'boots')} pts)"):
+            out = game.upgrade_equipment(data, "boots")
+            if out["ok"]:
+                commit(data)
+                flash("success", out["msg"])
+                st.rerun()
+            else:
+                st.error(out["msg"])
+
+# ================= TAVERN TAB =================
+with tab_tavern:
+    st.subheader("🍻 TAVERN – Hồi phục & Xa xỉ")
+
+    if env["tavern_price_multiplier"] < 1:
+        st.success("🍻 Ngày hội Tavern! Giá giảm 50%")
+
+    cols = st.columns(len(game.TAVERN_ITEMS))
+    for idx, item in enumerate(game.TAVERN_ITEMS):
+        with cols[idx]:
+            st.markdown(
+                f"""
+                <div class='card'>
+                    <h2>{item['emoji']}</h2>
+                    <b>{item['name']}</b><br>
+                    <small>+{item['energy']} ⚡</small><br>
+                    <small>{game.tavern_price(item, env)} pts</small>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+            if st.button("Mua", key=f"tavern_{idx}"):
+                out = game.buy_tavern(data, idx, env)
+                if out["ok"]:
+                    commit(data)
+                    flash("success", out["msg"])
+                    st.rerun()
+                else:
+                    st.error(out["msg"])
 
 # ================= ACHIEVEMENTS TAB =================
-with tabs[-1]:
+with tab_ach:
     st.subheader("🏆 ACHIEVEMENTS")
 
-    if not data.get("achievements"):
+    unlocked_keys = [k for k in data.get("achievements", []) if k in game.ACHIEVEMENTS]
+    if not unlocked_keys:
         st.info("Chưa có thành tựu nào. Hãy tiếp tục grind 💀")
     else:
-        for key in data["achievements"]:
-            ach = ACHIEVEMENTS[key]
+        for key in unlocked_keys:
+            ach = game.ACHIEVEMENTS[key]
             st.markdown(
                 f"""
                 <div class='card'>
@@ -416,433 +614,5 @@ with tabs[-1]:
                     <small>{ach['desc']}</small>
                 </div>
                 """,
-                unsafe_allow_html=True
+                unsafe_allow_html=True,
             )
-
-# ================= TASK TAB =================
-with tabs[0]:
-    st.subheader("⚔️Fram þæm gemænan ætfleohan.")
-
-    if not data.get("tasks"):
-        st.info("Chưa có task nào. Hãy tạo trong Forge.")
-
-    now = datetime.now()
-    hour = now.hour
-
-    # ===== ENVIRONMENT =====
-    env_damage_mult = 2 if 9 <= hour < 11 else 1
-    debuff_chance = 0.40 if hour >= 23 else 0.20
-
-    for name, pts in list(data["tasks"].items()):
-        base_dmg = (pts // 2) * data["equips"].get("sword", 1)
-        preview_dmg = base_dmg * env_damage_mult
-
-        col1, col2 = st.columns([4, 1])
-        col1.write(
-            f"**{name}** | +{pts} pts | ⚔️ {preview_dmg} dmg"
-            + (" ⚡x2" if env_damage_mult == 2 else "")
-        )
-
-        if col2.button("Hoàn thành", key=f"done_{name}"):
-            check_achievements(data)
-
-            # ===== ENERGY COST =====
-            energy_cost = 10 + data.get("next_task_penalty", 0)
-
-            if data["energy"] < energy_cost:
-                st.warning("⚡ Không đủ energy")
-                st.stop()
-
-            # ===== APPLY COST =====
-            data["energy"] -= energy_cost
-            data.pop("next_task_penalty", None)
-
-            # ===== REWARD =====
-            data["points"] += pts
-            data["total_points"] = data.get("total_points", 0) + pts
-            dmg = base_dmg * env_damage_mult
-
-            # ===== RANDOM DEBUFF =====
-            debuff_msg = None
-            if random.random() < debuff_chance:
-                debuff = random.choice(DEBUFFS)
-                debuff_msg = f"{debuff['emoji']} {debuff['name']}: {debuff['desc']}"
-
-                if debuff.get("type") == "half_damage":
-                    dmg //= 2
-                else:
-                    debuff["apply"](data)
-
-            # ===== DAMAGE =====
-            data["boss_hp"] -= dmg
-
-            # ===== HISTORY =====
-            data.setdefault("task_history", []).append({
-                "name": name,
-                "points": pts,
-                "date": now.strftime("%Y-%m-%d %H:%M")
-            })
-            data["tasks_done"] = data.get("tasks_done", 0) + 1
-
-            # ===== REMOVE TASK =====
-            del data["tasks"][name]
-
-            # ===== BOSS DEAD =====
-            if data["boss_hp"] <= 0:
-                data["boss_kills"] += 1
-                data["boss_hp"] = 1000
-                st.balloons()
-
-            save_data(data)
-
-            if debuff_msg:
-                st.toast(debuff_msg, icon="⚠️")  # tự biến sau ~3s
-
-            st.rerun()
-
-    # ===== TASK HISTORY VIEW =====
-    st.divider()
-    st.subheader("📜 Lịch sử Task đã hoàn thành")
-
-    if not data.get("task_history"):
-        st.info("Chưa hoàn thành task nào.")
-    else:
-        for t in data["task_history"][-5:][::-1]:
-            st.markdown(
-                f"✅ **{t['name']}** — +{t['points']} pts  \n"
-                f"<small>{t['date']}</small>",
-                unsafe_allow_html=True
-            )
-
-        st.caption(f"📊 Tổng task đã hoàn thành: {data.get('tasks_done', 0)}")
-
-        with st.expander("📂 Xem toàn bộ lịch sử"):
-            df = pd.DataFrame(data["task_history"][::-1])
-            st.dataframe(df, use_container_width=True)
-
-# ================= TREAT TAB =================
-with tabs[1]:
-    st.subheader("🎁 TREAT – Phần thưởng cho bản thân")
-
-    if not data.get("treats"):
-        st.info("Chưa có treat nào. Hãy tạo trong Forge.")
-    else:
-        for name, cost in list(data["treats"].items()):
-            col1, col2, col3 = st.columns([4, 1, 1])
-
-            col1.write(f"🎉 **{name}** — {cost} pts")
-
-            # ---- CLAIM ----
-            if col2.button("Nhận", key=f"treat_{name}"):
-                if data["points"] >= cost:
-                    data["points"] -= cost
-
-                    data.setdefault("treat_history", []).append({
-                        "name": name,
-                        "cost": cost,
-                        "time": datetime.now().strftime("%Y-%m-%d %H:%M")
-                    })
-
-                    save_data(data)
-                    st.success(f"Đã nhận treat: {name}")
-                    st.rerun()
-                else:
-                    st.error("Không đủ points")
-
-            # ---- DELETE TREAT ----
-            if col3.button("🗑️", key=f"del_treat_{name}"):
-                del data["treats"][name]
-                save_data(data)
-                st.rerun()
-
-# ================= CHEST TAB =================
-with tabs[2]:
-    st.subheader("📦 RƯƠNG MAY MẮN")
-
-    # ---- HIỆN THÔNG BÁO CŨ ----
-    if st.session_state.chest_msg:
-        st.info(st.session_state.chest_msg)
-        if st.button("OK"):
-            st.session_state.chest_msg = None
-            st.rerun()
-
-    # ---- MỞ RƯƠNG ----
-    if st.button("🔓 MỞ RƯƠNG"):
-        if data["points"] < 50:
-            st.error("Không đủ points")
-        elif len(data["inventory"]) >= data["max_slots"]:
-            st.error("Túi đồ đã đầy")
-        else:
-            data["points"] -= 50
-            item = random.choice(CHEST_ITEMS)
-
-            msg = ""
-
-            # rủi ro mất thêm pts
-            if random.random() < 0.2:
-                lost = random.randint(10, 30)
-                data["points"] = max(0, data["points"] - lost)
-                msg += f"💀 Rương bị nguyền! Mất {lost} pts\n"
-
-            if item["type"] == "none":
-                msg += "😢 Rương trống..."
-            else:
-                data["inventory"].append(item)
-                msg += f"🎉 Nhận được: {item['name']}\n👉 {item['desc']}"
-
-            save_data(data)
-
-            st.session_state.chest_msg = msg
-            st.rerun()
-
-# ================= INVENTORY TAB =================
-with tabs[3]:
-    st.subheader("🎒 Túi đồ")
-
-    # ---- BUY INVENTORY SLOT (FIX) ----
-    max_slots = data.get("max_slots", 3)
-    slot_price = 100 + (max_slots - 3) * 50
-
-    col_a, col_b = st.columns([3, 1])
-    col_a.write(f"Số ô: {data['max_slots']}")
-
-    if col_b.button(f"➕ Mua ô ({slot_price} pts)"):
-        if data["points"] >= slot_price:
-            data["points"] -= slot_price
-            data["max_slots"] += 1
-            save_data(data)
-            st.success("Đã mở rộng kho đồ!")
-            st.rerun()
-        else:
-            st.error("Không đủ points")
-    st.subheader(f"🎒 Túi đồ ({len(data['inventory'])}/{data['max_slots']})")
-
-    cols = st.columns(3)
-
-    for i in range(data["max_slots"]):
-        with cols[i % 3]:
-            if i < len(data["inventory"]):
-                it = data["inventory"][i]
-
-                st.markdown(
-                    f"""
-                    <div class='card'>
-                        <b>{it['name']}</b><br>
-                        <small style='color:#aaa'>Bấm xem công dụng</small>
-                    </div>
-                    """,
-                    unsafe_allow_html=True
-                )
-
-                with st.expander("📖 Công dụng", expanded=False):
-                    st.write(it["desc"])
-
-                col_use, col_sell = st.columns(2)
-
-                # ---- USE ITEM ----
-                if col_use.button("Dùng", key=f"use_{i}"):
-                    if it["type"] == "energy":
-                        data["energy"] = min(max_energy, data["energy"] + it["value"])
-
-                    elif it["type"] == "damage":
-                        data["boss_hp"] -= it["value"]
-
-                    elif it["type"] == "percent_damage":
-                        data["boss_hp"] -= int(data["boss_hp"] * it["value"])
-
-                    elif it["type"] == "points":
-                        data["points"] = max(0, data["points"] + it["value"])
-
-                    elif it["type"] == "max_energy":
-                        data.setdefault("bonus_max_energy", 0)
-                        data["bonus_max_energy"] += it["value"]
-
-                    data["inventory"].pop(i)
-
-                    if data["boss_hp"] <= 0:
-                        data["boss_kills"] += 1
-                        data["boss_hp"] = 1000
-                        st.balloons()
-
-                    save_data(data)
-                    st.rerun()
-
-                # ---- SELL ITEM ----
-                if col_sell.button("Bán", key=f"sell_{i}"):
-                    sell_price = max(5, int(0.3 * 50))  # bán rẻ
-                    data["points"] += sell_price
-                    data["inventory"].pop(i)
-                    save_data(data)
-                    st.success(f"Đã bán {it['name']} (+{sell_price} pts)")
-                    st.rerun()
-
-            else:
-                st.markdown(
-                    "<div class='card' style='border:dashed 1px #444'>Ô trống</div>",
-                    unsafe_allow_html=True
-                )
-
-# ================= 5. ARMORY =================
-with tabs[4]:
-    c1, c2 = st.columns(2)
-    with c1:
-        st.markdown("<div class='card'><div class='big'>⚔️</div>"
-                    f"Sword Lv.{data['equips']['sword']}</div>", unsafe_allow_html=True)
-        cost = data["equips"]["sword"] * 100
-        if st.button(f"Rèn kiếm ({cost} pts)"):
-            if data["points"] >= cost:
-                data["points"] -= cost
-                data["equips"]["sword"] += 1
-                save_data(data)
-                st.rerun()
-
-    with c2:
-        st.markdown("<div class='card'><div class='big'>👞</div>"
-                    f"Boots Lv.{data['equips']['boots']}</div>", unsafe_allow_html=True)
-        cost = data["equips"]["boots"] * 150
-        if st.button(f"Rèn giày ({cost} pts)"):
-            if data["points"] >= cost:
-                data["points"] -= cost
-                data["equips"]["boots"] += 1
-                save_data(data)
-                st.rerun()
-
-# ================= TAVERN TAB =================
-with tabs[5]:
-    st.subheader("🍻 TAVERN – Hồi phục & Xa xỉ")
-
-    tavern_items = [
-        {"name": "Nước Lã", "emoji": "🥛", "cost": 10, "energy": 10},
-        {"name": "Trà Đậm", "emoji": "🍵", "cost": 25, "energy": 25},
-        {"name": "Cà Phê Đen", "emoji": "☕", "cost": 50, "energy": 40},
-        {"name": "Bữa Thịnh Soạn", "emoji": "🍖", "cost": 80, "energy": 70},
-        {"name": "Yến Tiệc Vương Giả", "emoji": "🍗", "cost": 120, "energy": 100},
-    ]
-
-    # 🌍 Environment buff (đã gọi sẵn ở đầu file)
-    if env["tavern_price_multiplier"] < 1:
-        st.success("🍻 Ngày hội Tavern! Giá giảm 50%")
-
-    cols = st.columns(len(tavern_items))
-
-    for idx, item in enumerate(tavern_items):
-        with cols[idx]:
-            # ✅ ÁP DỤNG GIẢM GIÁ
-            final_cost = int(item["cost"] * env["tavern_price_multiplier"])
-
-            st.markdown(
-                f"""
-                <div class='card'>
-                    <h2>{item['emoji']}</h2>
-                    <b>{item['name']}</b><br>
-                    <small>+{item['energy']} ⚡</small><br>
-                    <small>{final_cost} pts</small>
-                </div>
-                """,
-                unsafe_allow_html=True
-            )
-
-            if st.button("Mua", key=f"tavern_{idx}"):
-                if data["points"] >= final_cost:
-                    data["points"] -= final_cost
-                    data["energy"] = min(max_energy, data["energy"] + item["energy"])
-                    save_data(data)
-                    st.success(f"Đã dùng {item['name']}")
-                    st.rerun()
-                else:
-                    st.error("Không đủ points")
-
-
-# ================= 7. ANALYTICS =================
-with tabs[6]:
-    st.subheader("📊 Analytics")
-
-    if not data.get("task_history"):
-        st.info("Chưa có dữ liệu để thống kê.")
-    else:
-        df = pd.DataFrame(data["task_history"])
-
-        # convert date
-        df["date"] = pd.to_datetime(df["date"])
-
-        # group theo ngày
-        daily = (
-            df.groupby(df["date"].dt.date)["points"]
-            .sum()
-            .reset_index()
-        )
-
-        daily["Day"] = pd.to_datetime(daily["date"]).dt.strftime("%d/%m")
-
-        fig = px.bar(
-            daily,
-            x="Day",
-            y="points",
-            title="🔥 Points kiếm được mỗi ngày"
-        )
-        fig.update_layout(template="plotly_dark")
-
-        st.plotly_chart(fig, use_container_width=True)
-
-
-# ================= 8. FORGE =================
-with tabs[7]:
-    st.subheader("⚙️ FORGE")
-
-    col_task, col_treat = st.columns(2)
-
-    # -------- TASK FORGE --------
-    with col_task:
-        st.markdown("""
-        <div class='card'>
-        <h3>📜 Tạo TASK</h3>
-        <p>Hành động grind – tiêu energy – đánh boss</p>
-        </div>
-        """, unsafe_allow_html=True)
-
-        with st.form("task_forge"):
-            task_name = st.text_input("Tên Task")
-            task_pts = st.slider(
-                "Points nhận được",
-                min_value=10,
-                max_value=50,
-                value=20,
-                step=5
-            )
-
-            if st.form_submit_button("⚔️ Tạo Task"):
-                if task_name.strip() == "":
-                    st.error("Task phải có tên")
-                else:
-                    data["tasks"][task_name] = task_pts
-                    save_data(data)
-                    st.success(f"Đã tạo task: {task_name}")
-                    st.rerun()
-
-    # -------- TREAT FORGE --------
-    with col_treat:
-        st.markdown("""
-        <div class='card'>
-        <h3>🎁 Tạo TREAT</h3>
-        <p>Phần thưởng cho bản thân </p>
-        </div>
-        """, unsafe_allow_html=True)
-
-        with st.form("treat_forge"):
-            treat_name = st.text_input("Tên Treat")
-            treat_cost = st.slider(
-                "Giá (points)",
-                min_value=50,
-                max_value=1000,
-                value=50,
-                step=5
-            )
-
-            if st.form_submit_button("🍬 Tạo Treat"):
-                if treat_name.strip() == "":
-                    st.error("Treat phải có tên")
-                else:
-                    data["treats"][treat_name] = treat_cost
-                    save_data(data)
-                    st.success(f"Đã tạo treat: {treat_name}")
-                    st.rerun()
