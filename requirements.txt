@@ -1,4 +1,6 @@
-streamlit
-supabase
-plotly
-python-dotenv
+streamlit>=1.50
+supabase>=2.0
+plotly>=5.0
+pandas>=2.0
+tzdata
+
