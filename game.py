@@ -488,13 +488,29 @@ def task_stats(tasks, today_iso):
     }
 
 
+MIN_EDGE_WEEK_DAYS = 4  # tuần đầu/cuối tháng ngắn hơn số ngày này sẽ được gộp vào tuần kề
+
+
 def month_weeks(year, month):
-    """Các tuần (Thứ 2 → CN) của tháng, cắt theo ranh giới tháng: [(ngày đầu, ngày cuối), ...]."""
+    """Các tuần (Thứ 2 → CN) của tháng: [(ngày đầu, ngày cuối), ...].
+
+    Tuần đầu/cuối tháng chỉ có 1–3 ngày được gộp vào tuần kề nên tháng nào cũng gọn 4–5 tuần.
+    """
     weeks = []
     for w in calendar.Calendar(firstweekday=0).monthdatescalendar(year, month):
         days = [d for d in w if d.month == month]
-        weeks.append((days[0], days[-1]))
-    return weeks
+        weeks.append([days[0], days[-1]])
+
+    def size(wk):
+        return (wk[1] - wk[0]).days + 1
+
+    if len(weeks) > 1 and size(weeks[0]) < MIN_EDGE_WEEK_DAYS:
+        weeks[1][0] = weeks[0][0]
+        weeks.pop(0)
+    if len(weeks) > 1 and size(weeks[-1]) < MIN_EDGE_WEEK_DAYS:
+        weeks[-2][1] = weeks[-1][1]
+        weeks.pop()
+    return [(a, b) for a, b in weeks]
 
 
 # ============ RƯƠNG / TÚI ĐỒ ============
