@@ -1,0 +1,36 @@
+name: Keep Streamlit app awake
+
+on:
+  schedule:
+    - cron: "17 */4 * * *"   # mỗi 4 giờ (giới hạn của Streamlit là 12 giờ không truy cập)
+  workflow_dispatch:          # cho phép bấm chạy thử bằng tay ở tab Actions
+
+jobs:
+  visit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Thư viện này chỉ cài trong workflow, KHÔNG thêm vào requirements.txt của app
+      - name: Cài Playwright + Chromium
+        run: |
+          pip install playwright
+          playwright install --with-deps chromium
+
+      - name: Mở app (đánh thức nếu đang ngủ)
+        run: python .github/scripts/keep_awake.py
+        env:
+          APP_URL: ${{ vars.APP_URL || 'https://grind-rpg.streamlit.app/' }}
+
+      - name: Lưu ảnh chụp màn hình khi lỗi
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-screenshot
+          path: debug.png
+          if-no-files-found: ignore
